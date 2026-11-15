@@ -14,6 +14,9 @@ npm-install.log
 # Supabase CLI temp state
 supabase/.temp/
 
+# Editor / assistant local config
+.claude/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
