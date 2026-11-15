@@ -4,32 +4,41 @@
 // `process.execPath` is the Electron binary itself, so ELECTRON_RUN_AS_NODE
 // is required — without it every "spawn" would open another copy of this
 // window instead of running the agent.
+//
+// Sections: Remote Access (pair, PIN, on/off) and Remote Support (share this
+// screen with a one-time code; every helper must be allowed here).
 
-const {app, BrowserWindow, ipcMain, shell} = require('electron');
+const {app, BrowserWindow, ipcMain, screen, shell} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const AGENT_ROOT = path.resolve(__dirname, '..');
 const CONFIG_PATH = process.env.AGENT_CONFIG_PATH
   ? path.resolve(process.env.AGENT_CONFIG_PATH)
   : path.join(AGENT_ROOT, 'config.json');
+const PIN_RE = /^\d{6,12}$/;
 
 let windowRef;
+let barRef;
 let agentProcess;
 let pairingProcess;
+let supportProcess;
 let hostState = 'stopped';
 
-function runCli(args, onOutput) {
+function runCli(args, onOutput, {stdin = false, env = {}} = {}) {
   const child = spawn(process.execPath, ['src/index.js', ...args], {
     cwd: AGENT_ROOT,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {...process.env, ELECTRON_RUN_AS_NODE: '1'},
+    stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+    env: {...process.env, ...env, ELECTRON_RUN_AS_NODE: '1'},
   });
-  const forward = data => onOutput(data.toString());
-  child.stdout.on('data', forward);
-  child.stderr.on('data', forward);
+  if (onOutput) {
+    const forward = data => onOutput(data.toString());
+    child.stdout.on('data', forward);
+    child.stderr.on('data', forward);
+  }
   return child;
 }
 
@@ -46,7 +55,7 @@ function stop(child) {
   if (child && child.exitCode === null && !child.killed) child.kill();
 }
 
-/** Identity summary read straight from config.json — never exposes the token. */
+/** Identity summary read straight from config.json — never exposes secrets. */
 function readIdentity() {
   let saved = {};
   try {
@@ -60,8 +69,12 @@ function readIdentity() {
   const credential = backend === 'relay' ? nonEmpty(saved.token) : nonEmpty(saved.deviceEmail) && nonEmpty(saved.devicePassword);
   return {
     paired: nonEmpty(saved.deviceId) && credential,
+    // Paired with the retired relay: the phone app can't see it until it is
+    // paired again (Supabase).
+    legacy: backend === 'relay',
     backend,
-    name: typeof saved.name === 'string' ? saved.name : require('node:os').hostname(),
+    pinSet: nonEmpty(saved.pinHash),
+    name: typeof saved.name === 'string' ? saved.name : os.hostname(),
     deviceId: typeof saved.deviceId === 'string' ? saved.deviceId : null,
     serverUrl: backend === 'relay'
       ? process.env.RELAY_URL || (typeof saved.relayUrl === 'string' ? saved.relayUrl : 'ws://127.0.0.1:8080/ws')
@@ -72,7 +85,9 @@ function readIdentity() {
 
 function startHost() {
   if (agentProcess) return {ok: true, alreadyRunning: true};
-  if (!readIdentity().paired) return {ok: false, error: 'Pair this computer with your account first.'};
+  const identity = readIdentity();
+  if (!identity.paired) return {ok: false, error: 'Pair this computer with your account first.'};
+  if (identity.legacy) return {ok: false, error: 'This PC uses the old relay server. Pair it again to use the Remote PC app.'};
   agentProcess = runCli(['run'], chunk => {
     send('agent:log', chunk);
     if (/authenticated as device/.test(chunk)) setHostState('online');
@@ -89,7 +104,7 @@ function startHost() {
 function createWindow() {
   windowRef = new BrowserWindow({
     width: 980,
-    height: 720,
+    height: 760,
     minWidth: 420,
     minHeight: 560,
     backgroundColor: '#17191C',
@@ -111,6 +126,90 @@ function createWindow() {
   windowRef.webContents.on('will-navigate', event => event.preventDefault());
 }
 
+// ---- Remote Support -------------------------------------------------------------
+
+/** Small always-on-top bar while someone is looking at this screen. */
+function showSharingBar(helperEmail, mode) {
+  closeSharingBar();
+  const {workArea} = screen.getPrimaryDisplay();
+  const width = 520;
+  barRef = new BrowserWindow({
+    width,
+    height: 56,
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: workArea.y + 12,
+    frame: false,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: true,
+    backgroundColor: '#17191C',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  barRef.setAlwaysOnTop(true, 'screen-saver');
+  const query = new URLSearchParams({who: helperEmail || 'someone', mode: mode || 'control'});
+  barRef.loadFile(path.join(__dirname, 'sharing-bar.html'), {search: query.toString()});
+  barRef.on('closed', () => { barRef = undefined; });
+}
+
+function closeSharingBar() {
+  if (barRef && !barRef.isDestroyed()) barRef.close();
+  barRef = undefined;
+}
+
+function stopSupport() {
+  if (!supportProcess) return;
+  try { supportProcess.stdin.write(`${JSON.stringify({stop: true})}\n`); } catch { /* gone */ }
+  const child = supportProcess;
+  setTimeout(() => stop(child), 3000);
+}
+
+function startSupport() {
+  if (supportProcess) return {ok: true, alreadyRunning: true};
+  const name = readIdentity().name;
+  let buffer = '';
+  supportProcess = runCli(['support', '--json', '--name', name], null, {stdin: true});
+  supportProcess.stdout.on('data', chunk => {
+    buffer += chunk.toString();
+    let newline;
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      let event;
+      try { event = JSON.parse(line); } catch { continue; }
+      send('support:event', event);
+      if (event.event === 'request' && windowRef && !windowRef.isDestroyed()) {
+        // Someone is asking to connect: bring the consent prompt forward.
+        if (windowRef.isMinimized()) windowRef.restore();
+        windowRef.show();
+        windowRef.focus();
+        windowRef.flashFrame(true);
+      } else if (event.event === 'started') {
+        windowRef?.flashFrame(false);
+        showSharingBar(event.helperEmail, event.mode);
+      } else if (event.event === 'ended') {
+        closeSharingBar();
+      }
+    }
+  });
+  supportProcess.stderr.on('data', chunk => send('agent:log', chunk.toString()));
+  supportProcess.on('exit', () => {
+    supportProcess = undefined;
+    closeSharingBar();
+    send('support:event', {event: 'stopped'});
+  });
+  return {ok: true};
+}
+
+// ---- app lifecycle + IPC --------------------------------------------------------
+
 app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => {
@@ -118,7 +217,7 @@ app.whenReady().then(() => {
   });
 });
 
-ipcMain.handle('agent:identity', () => ({...readIdentity(), state: hostState}));
+ipcMain.handle('agent:identity', () => ({...readIdentity(), state: hostState, supporting: Boolean(supportProcess)}));
 
 ipcMain.handle('agent:status', () => new Promise(resolve => {
   let output = '';
@@ -157,6 +256,11 @@ ipcMain.handle('agent:pair', (_event, request) => new Promise(resolve => {
     resolve({ok: false, error: 'The access code has 6 digits.'});
     return;
   }
+  const pin = String(request?.pin ?? '');
+  if (!PIN_RE.test(pin)) {
+    resolve({ok: false, error: 'Choose a PIN of 6 to 12 digits.'});
+    return;
+  }
   const name = String(request?.name ?? '').replace(/[\r\n]/g, '').trim().slice(0, 64);
   const wasRunning = Boolean(agentProcess);
   stop(agentProcess);
@@ -164,10 +268,11 @@ ipcMain.handle('agent:pair', (_event, request) => new Promise(resolve => {
   let output = '';
   const args = ['pair', '--code', code, '--no-run'];
   if (name) args.push('--name', name);
+  // The PIN goes through the environment, never the command line.
   pairingProcess = runCli(args, chunk => {
     output += chunk;
     send('agent:log', chunk);
-  });
+  }, {env: {AGENT_NEW_PIN: pin}});
   pairingProcess.on('exit', exitCode => {
     pairingProcess = undefined;
     if (exitCode === 0) {
@@ -175,13 +280,40 @@ ipcMain.handle('agent:pair', (_event, request) => new Promise(resolve => {
       startHost();
     } else {
       const reason = /pairing failed: (.+)/.exec(output)?.[1]?.trim();
-      resolve({ok: false, error: reason || 'Pairing failed. Check the code and the relay address.'});
+      resolve({ok: false, error: reason || 'Pairing failed. Check the code and try again.'});
       if (wasRunning) startHost();
     }
   });
 }));
 
+ipcMain.handle('agent:set-pin', (_event, value) => new Promise(resolve => {
+  const pin = String(value ?? '');
+  if (!PIN_RE.test(pin)) {
+    resolve({ok: false, error: 'The PIN must be 6 to 12 digits.'});
+    return;
+  }
+  let output = '';
+  const child = runCli(['pin'], chunk => { output += chunk; }, {env: {AGENT_NEW_PIN: pin}});
+  child.on('exit', code => resolve(code === 0
+    ? {ok: true, identity: readIdentity()}
+    : {ok: false, error: output.trim() || 'Could not save the PIN.'}));
+}));
+
+ipcMain.handle('support:start', () => startSupport());
+ipcMain.handle('support:stop', () => {
+  stopSupport();
+  return {ok: true};
+});
+ipcMain.handle('support:answer', (_event, answer) => {
+  if (!supportProcess) return {ok: false};
+  const sessionId = String(answer?.sessionId ?? '');
+  supportProcess.stdin.write(`${JSON.stringify({sessionId, allow: answer?.allow === true})}\n`);
+  return {ok: true};
+});
+
 app.on('before-quit', () => {
   stop(pairingProcess);
   stop(agentProcess);
+  stopSupport();
+  if (supportProcess) stop(supportProcess);
 });

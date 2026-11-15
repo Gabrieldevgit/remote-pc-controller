@@ -10,6 +10,8 @@ import * as input from './input.js';
 import { closeInput } from './input.js';
 import * as clipboard from './clipboard.js';
 import * as system from './system.js';
+import { loadConfig, resolveConfigPath } from './config.js';
+import { verifyPin } from './pin.js';
 
 function makeLogger(log) {
   return (...args) => log(...args);
@@ -30,6 +32,9 @@ export async function startAgent({
   backend = null,
   heartbeatIntervalMs,
   detectCapabilities = true,
+  authorize = null,
+  onSessionEvent = null,
+  security = null,
 }) {
   const capabilities = {
     webrtc: { mode: 'skipped', reason: null },
@@ -65,7 +70,23 @@ export async function startAgent({
     system,
     sendSignal: (type, payload) => client.sendEvent(type, payload),
     log,
+    authorize,
+    onSessionEvent,
+    // The PIN is re-read for every session so a change applies immediately.
+    security: security ?? {
+      pinRequired: () => Boolean(readPin().pinHash),
+      verifyPin: (pin) => verifyPin(pin, readPin()),
+    },
   });
+
+  function readPin() {
+    try {
+      const fresh = loadConfig(config.configPath ?? resolveConfigPath());
+      return { pinHash: fresh.pinHash, pinSalt: fresh.pinSalt };
+    } catch {
+      return {};
+    }
+  }
 
   const client = config.backend === 'relay'
     ? new RelayClient({
@@ -80,9 +101,12 @@ export async function startAgent({
     : new SupabaseAgentClient({
       url: config.supabaseUrl,
       key: config.supabaseKey,
+      // Remote Support uses a temporary host identity instead of the device login.
+      kind: config.supportHost ? 'support' : 'device',
+      hostId: config.supportHost?.hostId,
       deviceId: config.deviceId,
-      email: config.deviceEmail,
-      password: config.devicePassword,
+      email: config.supportHost?.email ?? config.deviceEmail,
+      password: config.supportHost?.password ?? config.devicePassword,
       name: config.name,
       version: config.version,
       capabilities: {

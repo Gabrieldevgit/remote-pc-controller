@@ -38,6 +38,9 @@ export function defaultConfig() {
     deviceEmail: null,
     devicePassword: null,
     token: null,
+    // Remote Access PIN (scrypt), set with `node src/index.js pin`.
+    pinHash: null,
+    pinSalt: null,
     name: defaultDeviceName(),
     version: AGENT_VERSION,
     settings: {
@@ -103,7 +106,7 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH) {
     // First run or unreadable file: start from defaults.
   }
   const config = defaultConfig();
-  for (const key of ['backend', 'supabaseUrl', 'supabaseKey', 'relayUrl', 'deviceId', 'deviceEmail', 'devicePassword', 'token', 'name', 'version']) {
+  for (const key of ['backend', 'supabaseUrl', 'supabaseKey', 'relayUrl', 'deviceId', 'deviceEmail', 'devicePassword', 'token', 'pinHash', 'pinSalt', 'name', 'version']) {
     if (typeof saved[key] === 'string' && saved[key]) config[key] = saved[key];
   }
   if (saved.deviceId === null) config.deviceId = null;
@@ -133,6 +136,8 @@ export function saveConfig(config, configPath = config.configPath ?? DEFAULT_CON
     deviceEmail: config.deviceEmail ?? null,
     devicePassword: config.devicePassword ?? null,
     token: config.token ?? null,
+    pinHash: config.pinHash ?? null,
+    pinSalt: config.pinSalt ?? null,
     name: config.name,
     version: config.version,
     settings: config.settings,

@@ -13,6 +13,7 @@ import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-contex
 import DevicesScreen from './src/screens/DevicesScreen';
 import RemoteSessionScreen from './src/screens/RemoteSessionScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import SupportScreen from './src/screens/SupportScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SetupScreen from './src/screens/SetupScreen';
 import {ThemeProvider, useTheme} from './src/theme/ThemeProvider';
@@ -25,6 +26,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const TAB_META: Record<keyof TabParamList, {label: string; icon: AppIconName}> = {
   Devices: {label: 'Computers', icon: 'devices'},
+  Support: {label: 'Support', icon: 'connect'},
   Settings: {label: 'Settings', icon: 'settings'},
   Profile: {label: 'Account', icon: 'person'},
 };
@@ -67,6 +69,7 @@ function MainTabs() {
         ),
       })}>
       <Tab.Screen name="Devices" component={DevicesScreen} />
+      <Tab.Screen name="Support" component={SupportScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>

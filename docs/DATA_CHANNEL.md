@@ -2,9 +2,14 @@
 
 This document is the binding contract for the WebRTC data channel used during
 a remote session. It is peer-to-peer between the **mobile client** and the
-**Windows agent** — the relay is never in the path. The relay WebSocket
-protocol (pairing, registry, signaling, `device.command`) is defined in
-[`relay/PROTOCOL.md`](../relay/PROTOCOL.md).
+**Windows agent** — Supabase only carries the signaling (offer / answer / ICE
+on private Realtime channels, see [`supabase/README.md`](../supabase/README.md));
+nothing on these channels passes through a server. The legacy relay WebSocket
+protocol is defined in [`relay/PROTOCOL.md`](../relay/PROTOCOL.md).
+
+Besides the `input` channel there is one extra channel per file transfer
+(`file:<id>`, section 6). Audio from the PC arrives as a normal WebRTC audio
+track next to the video track.
 
 Client-side reference implementation: `remote-pc-controller-main-src/src/lib/inputProtocol.ts`.
 Agent-side reference implementation: `agent/src/session.js`.
@@ -34,7 +39,7 @@ Agent-side reference implementation: `agent/src/session.js`.
 |---|---|---|
 | `pointer.move` | `dx`, `dy` (numbers) | Relative pointer movement in on-screen pixels |
 | `pointer.abs` | `x`, `y` (0..1) | Absolute pointer position, normalized against the remote screen |
-| `click` | `button`: `left`\|`right`\|`middle`; optional `x`, `y` (0..1) | Click; when `x`/`y` are present the pointer moves there first |
+| `click` | `button`: `left`\|`right`\|`middle`; optional `x`, `y` (0..1); optional `double`: boolean | Click (or double-click); when `x`/`y` are present the pointer moves there first |
 | `button` | `button`: `left`\|`right`\|`middle`; `down`: boolean | Press or release a mouse button (used for drag) |
 | `wheel` | `dx`, `dy` (numbers) | Scroll in wheel notches; positive `dy` scrolls up, positive `dx` scrolls right |
 
@@ -98,6 +103,15 @@ message name; direction is implied by who sent the frame.
 | `system.kill.result` | Reply to `system.kill` | `ok`, `pid`, `error?` |
 | `system.power.result` | Reply to `system.power` | `ok`, `action`, `error?` |
 | `system.beep.result` | Reply to `system.beep` | `ok` or `error` |
+| `cursor` | Whenever the real PC pointer moves or changes shape (≤ 30 per second) | `x`, `y` (0..1 of the primary screen), `visible`, `shape`: `arrow`\|`ibeam`\|`hand`\|`wait`\|`size-ns`\|`size-we`\|`size-all`\|… |
+| `auth.required` | Channel opened on a PIN-protected session | `attemptsLeft` |
+| `auth.ok` / `auth.failed` | Reply to `auth.pin` | `auth.failed` carries `attemptsLeft`; at 0 the session ends (`pin_failed`) |
+| `audio.state` | After unlock and after every `audio.set` | `available` (native mode only), `on` |
+| `curtain.state` | After unlock and after every `curtain.set` | `available` (access sessions on Windows 10 2004+), `on`, optional `error` |
+| `file.picking` / `file.none` | After `file.request`: the Open dialog is showing on the PC / it was cancelled | — |
+
+The capture itself contains no mouse pointer; the client draws its own large
+pointer from the `cursor` reports.
 
 ## 3. Agent-only extensions (client → agent)
 
@@ -116,6 +130,29 @@ mobile UI does not send all of them yet.
 | `system.power` | `action`: `lock`\|`shutdown`\|`restart`\|`hibernate`\|`signout` | Power action |
 | `system.beep` | — | Play the "find me" beep |
 
+## 3b. Session features (client → agent)
+
+| Message | Fields | Effect |
+|---|---|---|
+| `auth.pin` | `pin` (6–12 digits) | Unlock a PIN-protected session; replies `auth.ok` / `auth.failed` |
+| `audio.set` | `on`: boolean | Start / stop sending the PC's sound (WASAPI loopback) on the audio track |
+| `curtain.set` | `on`: boolean | Show / hide the curtain: a black screen on the PC's monitors that is excluded from the capture, so the remote user still sees the desktop |
+| `file.request` | — | Open the Windows *Open* dialog on the PC; the chosen file is sent on a new `file:<id>` channel |
+
+## 3c. Session gates
+
+The agent enforces these before routing any message:
+
+- **Locked** (access session of a PC with a PIN, before `auth.ok`): only
+  `auth.pin` and `stats.ping` are accepted; no video, audio, cursor or
+  clipboard is sent and no file channel is accepted. The PIN is checked on the
+  PC (scrypt hash in `agent/config.json`); 5 wrong tries end the session.
+- **View only** (Remote Support in *view* mode): only `quality.set`,
+  `stats.ping` and `audio.set` are accepted; no clipboard push, no file
+  channels.
+- **Support sessions** never need the PIN (the person at the PC approves the
+  request instead) and cannot use the curtain.
+
 ## 4. Binary JPEG framing (degraded mode only)
 
 When the agent runs without a native WebRTC video track (`jpeg` mode), each
@@ -132,3 +169,34 @@ Concatenate the payloads of all chunks sharing a `sequence` until the final
 flag is set; the result is one complete JPEG image at the frame's configured
 width. In `native` mode this framing is unused — video arrives on the normal
 WebRTC video track instead.
+
+## 5. Audio
+
+In native mode the agent's answer contains an audio track (48 kHz stereo,
+fed in 10 ms frames from a WASAPI loopback capture of the default output
+device). The client offers `addTransceiver('audio', {direction: 'recvonly'})`.
+Sound is off until the client sends `audio.set {on: true}`. Degraded JPEG
+mode has no audio (`audio.state.available` is false).
+
+## 6. File transfer
+
+Files go peer-to-peer over WebRTC, never through Supabase. Each transfer
+uses its own ordered, reliable data channel labelled **`file:<id>`**, opened
+by the sender:
+
+1. text `{ "t": "file.header", "id", "name", "size", "mime"? }`
+2. binary chunks (≤ 48 KiB each; the sender waits while `bufferedAmount`
+   is high)
+3. text `{ "t": "file.end", "id" }`
+
+The receiver answers on the same channel with `{ "t": "file.saved", "path"? }`
+or `{ "t": "file.error", "message" }`; either side may send
+`{ "t": "file.cancel" }` and close the channel. Limits: 1 GiB per file; names
+are sanitised and de-duplicated by the receiver.
+
+- **Phone → PC**: the phone opens the channel; the agent saves to
+  `%USERPROFILE%\Downloads\Remote PC\` (override with `AGENT_DOWNLOADS_DIR`).
+- **PC → phone**: the phone sends `file.request` on `input`; the agent shows
+  the Windows *Open* dialog (the remote user picks the file with the pointer)
+  and opens the channel; the phone saves to `Downloads/Remote PC`.
+- Not available while locked or in view-only sessions.

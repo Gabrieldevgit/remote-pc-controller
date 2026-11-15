@@ -4,12 +4,22 @@ import type {NavigatorScreenParams} from '@react-navigation/native';
 
 export type TabParamList = {
   Devices: undefined;
+  Support: undefined;
   Settings: undefined;
   Profile: undefined;
 };
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList> | undefined;
-  RemoteSession: {deviceId: string; deviceName?: string};
+  /**
+   * deviceId for your own computers; supportSessionId for a Remote Support
+   * session redeemed with an access code (mode = what the host allowed).
+   */
+  RemoteSession: {
+    deviceId?: string;
+    deviceName?: string;
+    supportSessionId?: string;
+    mode?: 'control' | 'view';
+  };
   Setup: undefined;
 };

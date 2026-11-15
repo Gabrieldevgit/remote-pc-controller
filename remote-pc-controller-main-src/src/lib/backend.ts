@@ -62,7 +62,14 @@ export class BackendError extends Error {
 /** Normalize PostgREST / RPC errors (custom exceptions carry the code). */
 export function toBackendError(error: {message?: string; code?: string} | null | undefined): BackendError {
   const message = error?.message ?? 'Something went wrong.';
-  for (const code of ['device_offline', 'session_finished', 'not_authenticated', 'device_not_found']) {
+  for (const code of [
+    'device_offline',
+    'session_finished',
+    'not_authenticated',
+    'device_not_found',
+    'invalid_or_expired_code',
+    'rate_limited',
+  ]) {
     if (message.includes(code)) {
       return new BackendError(code, friendlyMessage(code, message));
     }
@@ -81,6 +88,10 @@ function friendlyMessage(code: string, fallback: string): string {
       return 'This session has already ended.';
     case 'not_authenticated':
       return 'Please sign in again.';
+    case 'invalid_or_expired_code':
+      return 'That code is invalid or expired. Ask for a new one.';
+    case 'rate_limited':
+      return 'Too many wrong codes. Wait a few minutes and try again.';
     default:
       return fallback;
   }
@@ -241,4 +252,23 @@ export async function deleteScreenshot(storagePath: string) {
   if (error) {
     throw toBackendError(error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Remote Support (help someone with a one-time code)
+// ---------------------------------------------------------------------------
+
+export async function redeemSupportCode(
+  code: string,
+  mode: 'control' | 'view',
+): Promise<{sessionId: string; hostName: string}> {
+  const {data, error} = await supabase.rpc('redeem_support_code', {p_code: code, p_mode: mode});
+  if (error) {
+    throw toBackendError(error);
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.session_id) {
+    throw new BackendError('unknown', 'The server did not return a session.');
+  }
+  return {sessionId: String(row.session_id), hostName: String(row.host_name ?? 'Shared screen')};
 }

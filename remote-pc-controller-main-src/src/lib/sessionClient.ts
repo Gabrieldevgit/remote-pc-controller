@@ -45,6 +45,8 @@ interface SignalIcePayload {
 export {RTCView};
 
 export interface SessionStatsSnapshot {
+  /** 'direct' when peers talk P2P, 'relayed' through TURN. */
+  route?: 'direct' | 'relayed' | null;
   rttMs: number | null;
   fps: number | null;
   bitrateKbps: number | null;
@@ -59,6 +61,7 @@ const ICE_SERVERS = [
 
 const STATS_INTERVAL_MS = 2000;
 const ACCEPT_TIMEOUT_MS = 30000;
+const SUPPORT_APPROVAL_TIMEOUT_MS = 120000;
 
 type SessionPhaseUpdate = 'waiting' | 'signaling' | 'connected' | 'failed' | 'ended';
 
@@ -70,7 +73,16 @@ interface SessionClientCallbacks {
   onRemoteClipboard: (text: string) => void;
   /** Degraded (JPEG) mode: latest frame as a displayable data URL. */
   onJpegFrame?: (dataUrl: string) => void;
+  /** Real pointer position/shape reported by the agent (normalized). */
+  onCursor?: (cursor: {x: number; y: number; visible: boolean; shape: string}) => void;
+  /** Any other agent control message (auth, files, curtain, …). */
+  onControl?: (message: Record<string, unknown>) => void;
+  /** Data channels the agent opens (file downloads). */
+  onPeerChannel?: (channel: any) => void;
 }
+
+/** Personal remote access (owned PC) or a Remote Support session. */
+export type SessionKind = 'access' | 'support';
 
 interface LastStats {
   bytes: number;
@@ -104,6 +116,7 @@ function jpegSize(bytes: Uint8Array): {width: number; height: number} | null {
 export class SessionClient {
   private sessionId: string | null = null;
   private pc: RTCPeerConnection | null = null;
+  private kind: SessionKind = 'access';
   /** Realtime: row updates for this session + the signaling channel. */
   private rowChannel: RealtimeChannel | null = null;
   private signal: RealtimeChannel | null = null;
@@ -132,8 +145,22 @@ export class SessionClient {
     send: (data: string) => void;
   } | null = null;
 
-  constructor(callbacks: SessionClientCallbacks) {
+  constructor(callbacks: SessionClientCallbacks, kind: SessionKind = 'access') {
     this.callbacks = callbacks;
+    this.kind = kind;
+  }
+
+  private get table() {
+    return this.kind === 'support' ? 'support_sessions' : 'remote_sessions';
+  }
+
+  private get acceptedState() {
+    return this.kind === 'support' ? 'approved' : 'accepted';
+  }
+
+  /** Open an extra reliable data channel (file transfers). */
+  createChannel(label: string): any {
+    return this.pc ? this.pc.createDataChannel(label, {ordered: true}) : null;
   }
 
   get active(): boolean {
@@ -181,11 +208,26 @@ export class SessionClient {
         .then(undefined, () => {});
       return;
     }
+    this.watch(sessionId);
+  }
+
+  /**
+   * Join a Remote Support session created by redeem_support_code(); the
+   * host approves it on the PC, then signaling starts as usual.
+   */
+  async attach(sessionId: string, quality: VideoQuality): Promise<void> {
+    this.quality = quality;
+    this.ended = false;
+    this.watch(sessionId);
+  }
+
+  private watch(sessionId: string) {
+    const table = this.table;
     this.sessionId = sessionId;
     this.emitPhase('waiting');
 
     const onRow = (row: {state?: string; end_reason?: string | null}) => {
-      if (row.state === 'accepted') {
+      if (row.state === this.acceptedState) {
         this.clearAcceptTimer();
         void this.negotiate();
       } else if (row.state === 'ended' || row.state === 'rejected') {
@@ -196,14 +238,14 @@ export class SessionClient {
       .channel(`session-row:${sessionId}`)
       .on(
         'postgres_changes',
-        {event: 'UPDATE', schema: 'public', table: 'remote_sessions', filter: `id=eq.${sessionId}`},
+        {event: 'UPDATE', schema: 'public', table, filter: `id=eq.${sessionId}`},
         change => onRow(change.new as {state?: string; end_reason?: string | null}),
       )
       .subscribe(async status => {
         if (status === 'SUBSCRIBED') {
           // The PC may have answered before we were listening: catch up.
           const {data: row} = await supabase
-            .from('remote_sessions')
+            .from(table)
             .select('state,end_reason')
             .eq('id', sessionId)
             .single();
@@ -213,12 +255,15 @@ export class SessionClient {
         }
       });
 
+    // Support sessions wait for a person to click Allow on the PC.
     this.acceptTimer = setTimeout(() => {
       this.emitPhase(
         'failed',
-        'The computer did not respond in time. Is remote access turned on?',
+        this.kind === 'support'
+          ? 'Nobody accepted the request on the other computer.'
+          : 'The computer did not respond in time. Is remote access turned on?',
       );
-    }, ACCEPT_TIMEOUT_MS);
+    }, this.kind === 'support' ? SUPPORT_APPROVAL_TIMEOUT_MS : ACCEPT_TIMEOUT_MS);
   }
 
   private clearAcceptTimer() {
@@ -233,7 +278,7 @@ export class SessionClient {
     return new Promise((resolve, reject) => {
       void supabase.realtime.setAuth().then(() => {
         this.signal = supabase
-          .channel(`session:${sessionId}`, {
+          .channel(`${this.kind === 'support' ? 'support' : 'session'}:${sessionId}`, {
             config: {private: true, broadcast: {self: false, ack: true}},
           })
           .on('broadcast', {event: 'answer'}, ({payload}) => {
@@ -281,6 +326,8 @@ export class SessionClient {
       // video in the answer — Unified Plan answers can never add m-sections.
       // Without this the session connects but shows a black screen forever.
       pc.addTransceiver('video', {direction: 'recvonly'});
+      // Computer sound (WASAPI loopback on the PC); played automatically.
+      pc.addTransceiver('audio', {direction: 'recvonly'});
 
       // Input channel is negotiated inside our offer (PROTOCOL.md 4.3).
       const channel = pc.createDataChannel(DATA_CHANNEL_LABEL, {ordered: true});
@@ -306,8 +353,14 @@ export class SessionClient {
 
       pc.ontrack = (event: any) => {
         const stream = event?.streams?.[0];
-        if (stream) {
+        // Audio plays on its own; only the video stream feeds the RTCView.
+        if (stream && event?.track?.kind !== 'audio') {
           this.callbacks.onStream(stream.toURL());
+        }
+      };
+      pc.ondatachannel = (event: any) => {
+        if (event?.channel) {
+          this.callbacks.onPeerChannel?.(event.channel);
         }
       };
 
@@ -496,9 +549,22 @@ export class SessionClient {
       return;
     }
     try {
-      const message = JSON.parse(raw) as {t?: string; text?: string};
+      const message = JSON.parse(raw) as Record<string, unknown> & {t?: string; text?: string};
       if (message.t === 'clipboard.set' && typeof message.text === 'string') {
         this.callbacks.onRemoteClipboard(message.text);
+      } else if (message.t === 'cursor') {
+        const x = Number(message.x);
+        const y = Number(message.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          this.callbacks.onCursor?.({
+            x,
+            y,
+            visible: message.visible !== false,
+            shape: typeof message.shape === 'string' ? message.shape : 'arrow',
+          });
+        }
+      } else if (typeof message.t === 'string') {
+        this.callbacks.onControl?.(message);
       }
     } catch {
       // Non-JSON frame on the data channel; ignore.
@@ -549,6 +615,9 @@ export class SessionClient {
       let bytes = 0;
       let timestamp = 0;
       let sawVideo = false;
+      let route: 'direct' | 'relayed' | null = null;
+      let localCandidateId: string | null = null;
+      const candidateTypes = new Map<string, string>();
 
       report.forEach((entry: Record<string, unknown>) => {
         const type = entry.type as string | undefined;
@@ -561,6 +630,10 @@ export class SessionClient {
           if (typeof rtt === 'number') {
             rttMs = Math.round(rtt * 1000);
           }
+          localCandidateId = typeof entry.localCandidateId === 'string' ? entry.localCandidateId : null;
+        }
+        if (type === 'local-candidate' && typeof entry.id === 'string') {
+          candidateTypes.set(entry.id, String(entry.candidateType ?? ''));
         }
         if (type === 'inbound-rtp' && entry.kind === 'video') {
           sawVideo = typeof entry.bytesReceived === 'number' && entry.bytesReceived > 0;
@@ -610,7 +683,10 @@ export class SessionClient {
         this.jpegWindowStart = now;
       }
 
-      this.callbacks.onStats({rttMs, fps, bitrateKbps, width, height, packetsLost});
+      if (localCandidateId) {
+        route = candidateTypes.get(localCandidateId) === 'relay' ? 'relayed' : 'direct';
+      }
+      this.callbacks.onStats({route, rttMs, fps, bitrateKbps, width, height, packetsLost});
 
       // Adaptive quality lives on the agent; feed it our round-trip time.
       this.sendInput({
@@ -675,7 +751,7 @@ export class SessionClient {
     if (!this.ended && this.sessionId) {
       // Query builders are lazy: .then() is what sends the request.
       supabase
-        .from('remote_sessions')
+        .from(this.table)
         .update({state: 'ended', end_reason: 'ended_by_peer'})
         .eq('id', this.sessionId)
         .then(undefined, () => {});

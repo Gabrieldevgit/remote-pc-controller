@@ -13,7 +13,10 @@
     "desktop": "electron desktop/main.cjs",
     "pair": "node src/index.js pair",
     "status": "node src/index.js status",
-    "test": "node test/protocol-test.js"
+    "test": "node test/protocol-test.js",
+    "test:gates": "node test/session-gates-test.js",
+    "pin": "node src/index.js pin",
+    "support": "node src/index.js support"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

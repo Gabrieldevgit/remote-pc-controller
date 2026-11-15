@@ -6,7 +6,12 @@ contextBridge.exposeInMainWorld('host', {
   start: () => ipcRenderer.invoke('agent:start'),
   stop: () => ipcRenderer.invoke('agent:stop'),
   pair: request => ipcRenderer.invoke('agent:pair', request),
+  setPin: pin => ipcRenderer.invoke('agent:set-pin', pin),
   setRelay: url => ipcRenderer.invoke('agent:relay', url),
+  startSupport: () => ipcRenderer.invoke('support:start'),
+  stopSupport: () => ipcRenderer.invoke('support:stop'),
+  answerSupport: answer => ipcRenderer.invoke('support:answer', answer),
   onLog: listener => ipcRenderer.on('agent:log', (_event, value) => listener(value)),
   onState: listener => ipcRenderer.on('agent:state', (_event, value) => listener(value)),
+  onSupport: listener => ipcRenderer.on('support:event', (_event, value) => listener(value)),
 });

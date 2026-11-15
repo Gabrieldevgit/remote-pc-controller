@@ -2,23 +2,94 @@ import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type VideoQuality = 'high' | 'medium' | 'low' | 'adaptive';
+export type PointerColor = 'classic' | 'black' | 'copper';
+/** mouse = big draggable cursor (default), touch = tap where you touch, trackpad = laptop pad. */
+export type PointerModeSetting = 'mouse' | 'touch' | 'trackpad';
+
+export const POINTER_SIZE_MIN = 32;
+export const POINTER_SIZE_MAX = 160;
 
 const STORAGE_KEY = 'app.settings';
 
 interface PersistedSettings {
   defaultQuality: VideoQuality;
   haptics: boolean;
+  /** On-screen pointer height in dp. */
+  pointerSize: number;
+  pointerColor: PointerColor;
+  /** Multiplier for relative finger movement. */
+  pointerSpeed: number;
+  pointerMode: PointerModeSetting;
+  /** Play the computer's sound during sessions. */
+  computerSound: boolean;
 }
 
 interface SettingsState extends PersistedSettings {
   /** True once persisted values have been read back. */
   loaded: boolean;
   hydrate: () => Promise<void>;
+  update: (patch: Partial<PersistedSettings>) => void;
   setDefaultQuality: (quality: VideoQuality) => Promise<void>;
   setHaptics: (enabled: boolean) => Promise<void>;
 }
 
 const QUALITIES: VideoQuality[] = ['high', 'medium', 'low', 'adaptive'];
+const COLORS: PointerColor[] = ['classic', 'black', 'copper'];
+const MODES: PointerModeSetting[] = ['mouse', 'touch', 'trackpad'];
+
+const DEFAULTS: PersistedSettings = {
+  defaultQuality: 'adaptive',
+  haptics: true,
+  pointerSize: 72,
+  pointerColor: 'classic',
+  pointerSpeed: 1.5,
+  pointerMode: 'mouse',
+  computerSound: true,
+};
+
+function clampSize(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return DEFAULTS.pointerSize;
+  }
+  return Math.round(Math.min(POINTER_SIZE_MAX, Math.max(POINTER_SIZE_MIN, n)));
+}
+
+function clampSpeed(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(3, Math.max(0.5, n)) : DEFAULTS.pointerSpeed;
+}
+
+function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
+  return {
+    defaultQuality: QUALITIES.includes(raw.defaultQuality as VideoQuality)
+      ? (raw.defaultQuality as VideoQuality)
+      : DEFAULTS.defaultQuality,
+    haptics: typeof raw.haptics === 'boolean' ? raw.haptics : DEFAULTS.haptics,
+    pointerSize: clampSize(raw.pointerSize ?? DEFAULTS.pointerSize),
+    pointerColor: COLORS.includes(raw.pointerColor as PointerColor)
+      ? (raw.pointerColor as PointerColor)
+      : DEFAULTS.pointerColor,
+    pointerSpeed: clampSpeed(raw.pointerSpeed ?? DEFAULTS.pointerSpeed),
+    pointerMode: MODES.includes(raw.pointerMode as PointerModeSetting)
+      ? (raw.pointerMode as PointerModeSetting)
+      : DEFAULTS.pointerMode,
+    computerSound:
+      typeof raw.computerSound === 'boolean' ? raw.computerSound : DEFAULTS.computerSound,
+  };
+}
+
+function snapshot(state: SettingsState): PersistedSettings {
+  return {
+    defaultQuality: state.defaultQuality,
+    haptics: state.haptics,
+    pointerSize: state.pointerSize,
+    pointerColor: state.pointerColor,
+    pointerSpeed: state.pointerSpeed,
+    pointerMode: state.pointerMode,
+    computerSound: state.computerSound,
+  };
+}
 
 function persist(state: PersistedSettings) {
   AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)).catch(() => {
@@ -28,8 +99,7 @@ function persist(state: PersistedSettings) {
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   loaded: false,
-  defaultQuality: 'adaptive',
-  haptics: true,
+  ...DEFAULTS,
 
   hydrate: async () => {
     if (get().loaded) {
@@ -38,14 +108,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
-        set({
-          defaultQuality: QUALITIES.includes(parsed.defaultQuality as VideoQuality)
-            ? (parsed.defaultQuality as VideoQuality)
-            : 'adaptive',
-          haptics: parsed.haptics ?? true,
-          loaded: true,
-        });
+        set({...sanitize(JSON.parse(raw) as Partial<PersistedSettings>), loaded: true});
         return;
       }
     } catch {
@@ -54,13 +117,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({loaded: true});
   },
 
-  setDefaultQuality: async quality => {
-    set({defaultQuality: quality});
-    persist({defaultQuality: quality, haptics: get().haptics});
+  update: patch => {
+    const next = sanitize({...snapshot(get()), ...patch});
+    set(next);
+    persist(next);
   },
 
-  setHaptics: async enabled => {
-    set({haptics: enabled});
-    persist({defaultQuality: get().defaultQuality, haptics: enabled});
-  },
+  setDefaultQuality: async quality => get().update({defaultQuality: quality}),
+  setHaptics: async enabled => get().update({haptics: enabled}),
 }));

@@ -119,10 +119,15 @@ function createWrtcBackend(info, iceServers, log) {
       }
     });
 
-    // Real video track fed by software capture (RTCVideoSource).
+    // Real video track fed by software capture (RTCVideoSource), plus an
+    // audio track fed by WASAPI loopback (computer sound) in the same stream.
     const source = new nonstandard.RTCVideoSource({ isScreencast: true });
     const track = source.createTrack();
-    pc.addTrack(track, new MediaStream([track]));
+    const audioSource = new nonstandard.RTCAudioSource();
+    const audioTrack = audioSource.createTrack();
+    const stream = new MediaStream([track, audioTrack]);
+    pc.addTrack(track, stream);
+    pc.addTrack(audioTrack, stream);
 
     await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
     const answer = await pc.createAnswer();
@@ -142,6 +147,20 @@ function createWrtcBackend(info, iceServers, log) {
           log(`pushFrame failed: ${err?.message ?? err}`);
         }
       },
+      /** Feed one 10 ms s16 PCM frame (see audio.js) into the audio track. */
+      pushAudio(frame) {
+        try {
+          audioSource.onData(frame);
+        } catch (err) {
+          log(`pushAudio failed: ${err?.message ?? err}`);
+        }
+      },
+      /** Extra reliable channel (file transfers); SCTP is already up. */
+      createDataChannel(label) {
+        const channel = pc.createDataChannel(label, { ordered: true });
+        channel.binaryType = 'arraybuffer';
+        return channel;
+      },
       addIceCandidate(candidate) {
         if (candidate?.candidate) {
           pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
@@ -149,12 +168,13 @@ function createWrtcBackend(info, iceServers, log) {
       },
       close() {
         try { track.stop(); } catch { /* already stopped */ }
+        try { audioTrack.stop(); } catch { /* already stopped */ }
         try { pc.close(); } catch { /* already closed */ }
       },
     };
   }
 
-  return { mode: 'native', reason: info.reason, createPeer };
+  return { mode: 'native', reason: info.reason, createPeer, audio: true };
 }
 
 // ---- werift adapter (pure-JS WebRTC, data channel only) -------------------------
@@ -184,6 +204,10 @@ function createWeriftBackend(info, iceServers, log) {
 
     return {
       pushFrame() { /* no video track in this mode */ },
+      pushAudio() { /* no audio track in this mode */ },
+      createDataChannel(label) {
+        return wrapWeriftChannel(pc.createDataChannel(label, { ordered: true }));
+      },
       addIceCandidate(candidate) {
         if (candidate?.candidate) {
           pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
@@ -195,7 +219,7 @@ function createWeriftBackend(info, iceServers, log) {
     };
   }
 
-  return { mode: 'jpeg', reason: info.reason, createPeer };
+  return { mode: 'jpeg', reason: info.reason, createPeer, audio: false };
 }
 
 /**
@@ -206,6 +230,7 @@ function wrapWeriftChannel(channel) {
   const wrapper = {
     label: channel.label,
     readyState: channel.readyState,
+    get bufferedAmount() { return channel.bufferedAmount ?? 0; },
     onopen: null,
     onmessage: null,
     onclose: null,

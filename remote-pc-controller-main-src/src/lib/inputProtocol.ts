@@ -35,6 +35,8 @@ export interface PointerAbsMessage {
 export interface ClickMessage {
   t: 'click';
   button: PointerButton;
+  /** Double click (two presses) at the position. */
+  double?: boolean;
   /** When present, click at this absolute position (0..1) first. */
   x?: number;
   y?: number;
@@ -111,7 +113,34 @@ export interface MediaKeyMessage {
   key: MediaKeyName;
 }
 
+/** Remote Access PIN, verified on the PC (never stored in the cloud). */
+export interface AuthPinMessage {
+  t: 'auth.pin';
+  pin: string;
+}
+
+/** Turn computer sound streaming on/off. */
+export interface AudioSetMessage {
+  t: 'audio.set';
+  on: boolean;
+}
+
+/** Curtain mode: black out the PC's own screen during the session. */
+export interface CurtainSetMessage {
+  t: 'curtain.set';
+  on: boolean;
+}
+
+/** Ask the PC to open its "Open file" dialog and send the chosen file. */
+export interface FileRequestMessage {
+  t: 'file.request';
+}
+
 export type InputMessage =
+  | AuthPinMessage
+  | AudioSetMessage
+  | CurtainSetMessage
+  | FileRequestMessage
   | PointerMoveMessage
   | PointerAbsMessage
   | ClickMessage

@@ -7,7 +7,16 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useTheme, useThemeMode} from '../theme/ThemeProvider';
 import {shape, spacing, typography} from '../theme/tokens';
 import {SUPABASE_PROJECT_LABEL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL} from '../lib/supabase';
-import {useSettingsStore, type VideoQuality} from '../store/settings';
+import {
+  POINTER_SIZE_MAX,
+  POINTER_SIZE_MIN,
+  useSettingsStore,
+  type PointerColor,
+  type PointerModeSetting,
+  type VideoQuality,
+} from '../store/settings';
+import {CursorGlyph} from '../components/CursorOverlay';
+import IconButton from '../components/IconButton';
 import {useAuthStore} from '../store/auth';
 import {useDevicesStore} from '../store/devices';
 import Card from '../components/Card';
@@ -30,6 +39,55 @@ const QUALITY_OPTIONS: {value: VideoQuality; label: string}[] = [
   {value: 'medium', label: 'Medium'},
   {value: 'low', label: 'Low'},
 ];
+
+const SIZE_PRESETS: {value: string; label: string; px: number}[] = [
+  {value: '40', label: 'S', px: 40},
+  {value: '64', label: 'M', px: 64},
+  {value: '88', label: 'L', px: 88},
+  {value: '120', label: 'XL', px: 120},
+  {value: '160', label: 'Huge', px: 160},
+];
+
+const COLOR_OPTIONS: {value: PointerColor; label: string}[] = [
+  {value: 'classic', label: 'Classic'},
+  {value: 'black', label: 'Black'},
+  {value: 'copper', label: 'Copper'},
+];
+
+const SPEED_OPTIONS: {value: string; label: string}[] = [
+  {value: '0.75', label: '0.75×'},
+  {value: '1', label: '1×'},
+  {value: '1.5', label: '1.5×'},
+  {value: '2', label: '2×'},
+  {value: '3', label: '3×'},
+];
+
+const MODE_OPTIONS: {value: PointerModeSetting; label: string}[] = [
+  {value: 'mouse', label: 'Mouse'},
+  {value: 'touch', label: 'Touch'},
+  {value: 'trackpad', label: 'Trackpad'},
+];
+
+const MODE_HINT: Record<PointerModeSetting, string> = {
+  mouse: 'Drag the big pointer with your finger. Tap to click, hold then drag to drag.',
+  touch: 'Tap exactly where you want to click.',
+  trackpad: 'A laptop-style trackpad at the bottom of the screen.',
+};
+
+/** Live preview of the on-screen pointer on a dark "desktop". */
+function PointerPreview({size, color}: {size: number; color: PointerColor}) {
+  const {palette} = useTheme();
+  return (
+    <View
+      accessibilityLabel={`Pointer preview, ${size} pixels`}
+      style={[styles.preview, {backgroundColor: '#1E2125', borderColor: palette.border}]}>
+      <View style={styles.previewWindow} />
+      <View style={styles.previewCursor}>
+        <CursorGlyph shape="arrow" size={size} color={color} />
+      </View>
+    </View>
+  );
+}
 
 const QUALITY_HINT: Record<VideoQuality, string> = {
   adaptive: 'Adjusts resolution to your connection.',
@@ -84,6 +142,13 @@ export default function SettingsScreen() {
   const {preference, setPreference} = useThemeMode();
   const defaultQuality = useSettingsStore(s => s.defaultQuality);
   const haptics = useSettingsStore(s => s.haptics);
+  const pointerSize = useSettingsStore(s => s.pointerSize);
+  const pointerColor = useSettingsStore(s => s.pointerColor);
+  const pointerSpeed = useSettingsStore(s => s.pointerSpeed);
+  const pointerMode = useSettingsStore(s => s.pointerMode);
+  const computerSound = useSettingsStore(s => s.computerSound);
+  const update = useSettingsStore(s => s.update);
+  const sizePreset = SIZE_PRESETS.find(p => p.px === pointerSize)?.value ?? '';
   const setDefaultQuality = useSettingsStore(s => s.setDefaultQuality);
   const setHaptics = useSettingsStore(s => s.setHaptics);
   const token = useAuthStore(s => s.token);
@@ -181,6 +246,45 @@ export default function SettingsScreen() {
           </Row>
         </Card>
 
+        <SectionHeader title="Pointer" />
+        <Card padded={false}>
+          <Row icon="mouse" title="On-screen pointer" subtitle="How the computer’s mouse pointer looks on your phone.">
+            <PointerPreview size={pointerSize} color={pointerColor} />
+            <View style={styles.sizeRow}>
+              <Text style={[styles.sizeLabel, {color: palette.textSecondary}]}>Size</Text>
+              <IconButton
+                icon="remove"
+                accessibilityLabel="Smaller pointer"
+                disabled={pointerSize <= POINTER_SIZE_MIN}
+                onPress={() => update({pointerSize: pointerSize - 8})}
+              />
+              <Text style={[styles.sizeValue, {color: palette.textPrimary}]}>{pointerSize} px</Text>
+              <IconButton
+                icon="add"
+                accessibilityLabel="Bigger pointer"
+                disabled={pointerSize >= POINTER_SIZE_MAX}
+                onPress={() => update({pointerSize: pointerSize + 8})}
+              />
+            </View>
+            <Segmented
+              options={SIZE_PRESETS.map(({value, label}) => ({value, label}))}
+              value={sizePreset}
+              onChange={v => update({pointerSize: Number(v)})}
+            />
+            <Text style={[styles.sizeLabel, {color: palette.textSecondary}]}>Color</Text>
+            <Segmented options={COLOR_OPTIONS} value={pointerColor} onChange={v => update({pointerColor: v})} />
+            <Text style={[styles.sizeLabel, {color: palette.textSecondary}]}>Speed</Text>
+            <Segmented
+              options={SPEED_OPTIONS}
+              value={String(pointerSpeed)}
+              onChange={v => update({pointerSpeed: Number(v)})}
+            />
+          </Row>
+          <Row divider icon="touch" title="Default control mode" subtitle={MODE_HINT[pointerMode]}>
+            <Segmented options={MODE_OPTIONS} value={pointerMode} onChange={v => update({pointerMode: v})} />
+          </Row>
+        </Card>
+
         <SectionHeader title="Remote sessions" />
         <Card padded={false}>
           <Row icon="tune" title="Default quality" subtitle={QUALITY_HINT[defaultQuality]}>
@@ -196,6 +300,22 @@ export default function SettingsScreen() {
                 accessibilityLabel="Haptic feedback"
                 value={haptics}
                 onValueChange={setHaptics}
+                trackColor={{false: palette.surfaceContainerHighest, true: palette.primary}}
+                thumbColor={palette.mode === 'dark' ? palette.textPrimary : '#FFFFFF'}
+                ios_backgroundColor={palette.surfaceContainerHighest}
+              />
+            }
+          />
+          <Row
+            divider
+            icon="volume-up"
+            title="Computer sound"
+            subtitle="Play the PC’s audio on your phone during sessions."
+            trailing={
+              <Switch
+                accessibilityLabel="Computer sound"
+                value={computerSound}
+                onValueChange={v => update({computerSound: v})}
                 trackColor={{false: palette.surfaceContainerHighest, true: palette.primary}}
                 thumbColor={palette.mode === 'dark' ? palette.textPrimary : '#FFFFFF'}
                 ios_backgroundColor={palette.surfaceContainerHighest}
@@ -299,6 +419,42 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  preview: {
+    height: 176,
+    borderRadius: shape.md,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewWindow: {
+    position: 'absolute',
+    left: 18,
+    top: 18,
+    right: 60,
+    bottom: 34,
+    borderRadius: 6,
+    backgroundColor: '#2C3138',
+  },
+  previewCursor: {
+    marginLeft: 24,
+  },
+  sizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  sizeLabel: {
+    ...typography.labelLarge,
+    fontWeight: '600',
+    flex: 1,
+  },
+  sizeValue: {
+    ...typography.titleMedium,
+    minWidth: 64,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   version: {
     ...typography.bodySmall,

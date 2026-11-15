@@ -41,11 +41,18 @@ export class SupabaseAgentClient extends EventEmitter {
    * @param {string} [opts.version]
    * @param {object} [opts.capabilities]
    * @param {number} [opts.heartbeatIntervalMs]
+   * @param {'device'|'support'} [opts.kind]  'support' = temporary Remote Support
+   *        host (no heartbeat; sessions in support_sessions, topics support:<id>)
+   * @param {string} [opts.hostId]          support_hosts.id when kind = 'support'
    */
   constructor(opts) {
     super();
     this.opts = opts;
-    this.deviceId = opts.deviceId;
+    this.kind = opts.kind === 'support' ? 'support' : 'device';
+    this.deviceId = this.kind === 'support' ? opts.hostId : opts.deviceId;
+    this.sessionTable = this.kind === 'support' ? 'support_sessions' : 'remote_sessions';
+    this.topicPrefix = this.kind === 'support' ? 'support' : 'session';
+    this.acceptState = this.kind === 'support' ? 'approved' : 'accepted';
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? HEARTBEAT_MS;
     this.supabase = createClient(opts.url, opts.key, {
       auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false },
@@ -83,7 +90,7 @@ export class SupabaseAgentClient extends EventEmitter {
     }
     await this.supabase.realtime.setAuth();
     try {
-      await this.heartbeat();
+      if (this.kind === 'device') await this.heartbeat();
     } catch (err) {
       if (err?.message?.includes('device_not_found')) {
         this.fatal('device_deleted');
@@ -94,9 +101,12 @@ export class SupabaseAgentClient extends EventEmitter {
     }
     this.authed = true;
     this.attempts = 0;
-    this.log(`authenticated as device ${this.deviceId} (${this.opts.name ?? 'PC'}) via Supabase`);
+    this.log(this.kind === 'support'
+      ? `ready for Remote Support as ${this.opts.name ?? 'PC'} via Supabase`
+      : `authenticated as device ${this.deviceId} (${this.opts.name ?? 'PC'}) via Supabase`);
     this.emit('auth-ok', { deviceId: this.deviceId });
     this.subscribeDevice();
+    if (this.kind === 'support') return;
     this.heartbeatTimer = setInterval(() => {
       this.heartbeat().catch((err) => {
         if (err?.message?.includes('device_not_found')) this.fatal('device_deleted');
@@ -145,9 +155,16 @@ export class SupabaseAgentClient extends EventEmitter {
       this.deviceChannel = null;
     };
     if (markOffline && this.authed) {
-      // Best effort: tell the backend we are going away.
+      // Best effort: tell the backend we are going away (devices go offline,
+      // support hosts end any open session).
+      const goodbye = this.kind === 'support'
+        ? this.supabase.from('support_sessions')
+          .update({ state: 'ended', end_reason: 'stopped_sharing' })
+          .eq('host_id', this.deviceId)
+          .in('state', ['requested', 'approved'])
+        : this.supabase.rpc('device_offline');
       Promise.race([
-        this.supabase.rpc('device_offline'),
+        Promise.resolve(goodbye),
         new Promise((r) => setTimeout(r, 2000)),
       ]).finally(done);
     } else {
@@ -159,15 +176,20 @@ export class SupabaseAgentClient extends EventEmitter {
   // ---- inbound ---------------------------------------------------------------
 
   subscribeDevice() {
-    const filter = `device_id=eq.${this.deviceId}`;
-    this.deviceChannel = this.supabase
-      .channel(`device:${this.deviceId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'remote_sessions', filter },
+    const table = this.sessionTable;
+    const filter = this.kind === 'support' ? `host_id=eq.${this.deviceId}` : `device_id=eq.${this.deviceId}`;
+    let channel = this.supabase
+      .channel(`${this.kind}:${this.deviceId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table, filter },
         (change) => this.onSessionInsert(change.new))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'remote_sessions', filter },
-        (change) => this.onSessionUpdate(change.new))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'device_commands', filter },
-        (change) => this.onCommand(change.new))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table, filter },
+        (change) => this.onSessionUpdate(change.new));
+    if (this.kind === 'device') {
+      channel = channel.on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'device_commands', filter: `device_id=eq.${this.deviceId}` },
+        (change) => this.onCommand(change.new));
+    }
+    this.deviceChannel = channel
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') this.log('listening for sessions and commands');
         else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -179,7 +201,7 @@ export class SupabaseAgentClient extends EventEmitter {
   onSessionInsert(row) {
     const sessionId = str(row?.id, 64);
     if (!sessionId || row.state !== 'requested' || this.sessionChannels.has(sessionId)) return;
-    const channel = this.supabase.channel(`session:${sessionId}`, {
+    const channel = this.supabase.channel(`${this.topicPrefix}:${sessionId}`, {
       config: { private: true, broadcast: { self: false, ack: true } },
     });
     channel
@@ -200,8 +222,16 @@ export class SupabaseAgentClient extends EventEmitter {
       })
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
-          // Joined the signaling channel: let the session manager accept.
-          this.emit('message', 'session.request', { sessionId, deviceId: this.deviceId });
+          // Joined the signaling channel: let the session manager accept
+          // (support sessions first ask the person at the PC for consent).
+          this.emit('message', 'session.request', this.kind === 'support'
+            ? {
+              sessionId,
+              kind: 'support',
+              mode: row.mode === 'view' ? 'view' : 'control',
+              helperEmail: str(row.helper_email, 320) ?? 'someone',
+            }
+            : { sessionId, deviceId: this.deviceId });
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           this.warn(`session ${sessionId} channel ${status.toLowerCase()}${err ? `: ${err.message}` : ''}`);
           this.endSession(sessionId, 'signaling_failed');
@@ -255,7 +285,7 @@ export class SupabaseAgentClient extends EventEmitter {
 
   async endSession(sessionId, reason) {
     this.closeSessionChannel(sessionId);
-    const { data } = await this.supabase.from('remote_sessions')
+    const { data } = await this.supabase.from(this.sessionTable)
       .update({ state: 'ended', end_reason: reason })
       .eq('id', sessionId)
       .in('state', ['requested', 'accepted']) // never overwrite a finished session
@@ -270,12 +300,12 @@ export class SupabaseAgentClient extends EventEmitter {
     const sessionId = str(payload.sessionId, 64);
     switch (type) {
       case 'session.accept':
-        this.supabase.from('remote_sessions').update({ state: 'accepted' }).eq('id', sessionId)
+        this.supabase.from(this.sessionTable).update({ state: this.acceptState }).eq('id', sessionId)
           .then(({ error }) => { if (error) this.warn(`accept ${sessionId}: ${error.message}`); });
         return true;
       case 'session.reject':
         this.closeSessionChannel(sessionId);
-        this.supabase.from('remote_sessions')
+        this.supabase.from(this.sessionTable)
           .update({ state: 'rejected', end_reason: str(payload.reason, 64) ?? 'rejected' })
           .eq('id', sessionId)
           .then(({ error }) => { if (error) this.warn(`reject ${sessionId}: ${error.message}`); });
@@ -331,6 +361,27 @@ export class SupabaseAgentClient extends EventEmitter {
     try { fs.unlinkSync(filePath); } catch { /* keep local copy if locked */ }
     return objectPath;
   }
+
+  /** Support hosts: a fresh 12-digit code (5 minutes, single use). */
+  async issueSupportCode() {
+    const { data, error } = await this.supabase.rpc('issue_support_code');
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data) ? data[0] : data;
+    return { code: String(row.code), expiresAt: Date.parse(row.expires_at) };
+  }
+}
+
+/** Ask the support-host Edge Function for a temporary Remote Support identity. */
+export async function createSupportHost({ url, key, name }) {
+  const response = await fetch(`${url.replace(/\/+$/, '')}/functions/v1/support-host`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: key },
+    body: JSON.stringify({ name }),
+  });
+  let body = {};
+  try { body = await response.json(); } catch { /* non-JSON */ }
+  if (!response.ok) throw new Error(body.message ?? body.error ?? `HTTP ${response.status}`);
+  return body;
 }
 
 /**

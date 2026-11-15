@@ -10,6 +10,40 @@
 import jpegJs from 'jpeg-js';
 
 import { ScreenFramePump } from './capture.js';
+import { CursorTracker } from './cursor.js';
+import { AudioCapture } from './audio.js';
+import { Curtain, curtainSupported } from './curtain.js';
+import { pickFileOnPc, receiveUpload, sendFile } from './files.js';
+import { PIN_MAX_ATTEMPTS } from './pin.js';
+
+/** While a session waits for its PIN, only these messages are accepted. */
+const LOCKED_ALLOWED = new Set(['auth.pin', 'stats.ping']);
+/** View-only support sessions may only tune the stream. */
+const VIEW_ALLOWED = new Set(['quality.set', 'stats.ping', 'audio.set']);
+
+/** One loopback capture shared by every session that wants sound. */
+class AudioHub {
+  constructor(log) {
+    this.listeners = new Set();
+    this.capture = new AudioCapture({
+      log,
+      onFrame: (frame) => {
+        for (const listener of this.listeners) listener(frame);
+      },
+    });
+  }
+
+  subscribe(listener) {
+    this.listeners.add(listener);
+    if (this.listeners.size === 1) this.capture.start();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) this.capture.stop();
+    };
+  }
+}
+
+const CURSOR_MIN_INTERVAL_MS = 33; // ~30 reports per second at most
 
 const QUALITY_PRESETS = {
   high: { width: 1920, fps: 30, jpegQuality: 65 },
@@ -119,8 +153,25 @@ export class SessionManager {
    * @param {(type: string, payload: object) => void} opts.sendSignal
    *        sends a relay event (session.accept / signal.answer / signal.ice)
    * @param {function} [opts.log]
+   * @param {object} [opts.security]  { pinRequired(): boolean, verifyPin(pin): boolean }
+   * @param {function} [opts.authorize] async ({sessionId, helperEmail, mode}) => boolean —
+   *        consent for Remote Support sessions; without it they are declined
+   * @param {function} [opts.onSessionEvent] ({type, sessionId, ...}) for host UIs
    */
-  constructor({ backend, input, clipboard, system, sendSignal, log = console.log }) {
+  constructor({
+    backend,
+    input,
+    clipboard,
+    system,
+    sendSignal,
+    log = console.log,
+    security = null,
+    authorize = null,
+    onSessionEvent = null,
+  }) {
+    this.security = security;
+    this.authorize = authorize;
+    this.onSessionEvent = onSessionEvent;
     this.backend = backend;
     this.input = input;
     this.clipboard = clipboard;
@@ -128,6 +179,13 @@ export class SessionManager {
     this.sendSignal = sendSignal;
     this.log = log;
     this.sessions = new Map(); // sessionId -> record
+    this.cursor = new CursorTracker({ log: (...a) => this.log(`[cursor] ${a.join(' ')}`) });
+    this.audio = new AudioHub((...a) => this.log(`[audio] ${a.join(' ')}`));
+    this.curtain = new Curtain({ log: (...a) => this.log(`[curtain] ${a.join(' ')}`) });
+  }
+
+  emitEvent(event) {
+    try { this.onSessionEvent?.(event); } catch { /* UI's problem */ }
   }
 
   get count() {
@@ -167,7 +225,19 @@ export class SessionManager {
       this.logWarn(`duplicate session.request for ${sessionId}; ignoring`);
       return;
     }
+    const kind = payload.kind === 'support' ? 'support' : 'access';
+    const mode = payload.mode === 'view' ? 'view' : 'control';
     this.sessions.set(sessionId, {
+      kind,
+      mode,
+      helperEmail: typeof payload.helperEmail === 'string' ? payload.helperEmail : null,
+      viewOnly: kind === 'support' && mode === 'view',
+      // Personal access waits for the PIN when one is set on this PC.
+      locked: kind === 'access' && this.security?.pinRequired?.() === true,
+      pinAttempts: 0,
+      audioOff: null,
+      curtainOn: false,
+      picking: false,
       id: sessionId,
       peer: null,
       channel: null,
@@ -182,8 +252,28 @@ export class SessionManager {
       pendingIce: [], // ICE that arrives before the answer is ready
       createdAt: Date.now(),
     });
-    this.log(`session ${sessionId} requested — accepting (device pre-authorized by token)`);
-    // The device is pre-authorized by its token: accept immediately.
+    if (kind === 'support') {
+      const helper = this.sessions.get(sessionId).helperEmail ?? 'someone';
+      this.log(`support session ${sessionId}: ${helper} asks to ${mode === 'view' ? 'view' : 'control'} this screen`);
+      Promise.resolve(this.authorize ? this.authorize({ sessionId, helperEmail: helper, mode }) : false)
+        .catch(() => false)
+        .then((allow) => {
+          if (!this.sessions.has(sessionId)) return;
+          if (allow) {
+            this.log(`support session ${sessionId}: allowed`);
+            this.sendSignal('session.accept', { sessionId });
+            this.emitEvent({ type: 'support-started', sessionId, helperEmail: helper, mode });
+          } else {
+            this.log(`support session ${sessionId}: declined`);
+            this.sendSignal('session.reject', { sessionId, reason: 'rejected' });
+            this.sessions.delete(sessionId);
+          }
+        });
+      return;
+    }
+    const locked = this.sessions.get(sessionId).locked;
+    this.log(`session ${sessionId} requested — accepting${locked ? ' (PIN required)' : ''}`);
+    // The device is pre-authorized by its login; the PIN is checked in-session.
     this.sendSignal('session.accept', { sessionId });
   }
 
@@ -209,11 +299,12 @@ export class SessionManager {
       session.peer = await this.backend.createPeer({
         offerSdp: sdp,
         sendSignal: (type, fields) => this.sendSignal(type, { sessionId, ...fields }),
-        onDataChannel: (channel) => this.wireDataChannel(session, channel),
+        onDataChannel: (channel) => this.routeChannel(session, channel),
         session,
       });
-      // Native mode: feed the video track right away (no datachannel needed).
-      if (this.backend.mode === 'native') {
+      // Native mode: feed the video track right away (no datachannel needed)
+      // — unless the session still waits for its PIN.
+      if (this.backend.mode === 'native' && !session.locked) {
         this.startFramePump(session);
       }
       // Flush any ICE candidates that arrived while the answer was being made.
@@ -264,8 +355,18 @@ export class SessionManager {
     this.sessions.delete(sessionId);
     if (session.clipboardTimer) clearInterval(session.clipboardTimer);
     session.clipboardTimer = null;
+    try { session.cursorOff?.(); } catch { /* already gone */ }
+    session.cursorOff = null;
+    clearTimeout(session.cursorTimer);
     try { session.pump?.stop(); } catch { /* already gone */ }
     session.pump = null;
+    try { session.audioOff?.(); } catch { /* already gone */ }
+    session.audioOff = null;
+    if (session.curtainOn) {
+      session.curtainOn = false;
+      if (![...this.sessions.values()].some((s) => s.curtainOn)) this.curtain.hide();
+    }
+    if (session.kind === 'support') this.emitEvent({ type: 'support-ended', sessionId });
     try { session.peer?.close(); } catch { /* already gone */ }
     session.peer = null;
     session.channel = null;
@@ -276,6 +377,20 @@ export class SessionManager {
   }
 
   // ---- data channel -----------------------------------------------------------
+
+  /** 'input' is the control channel; 'file:<id>' channels carry one upload each. */
+  routeChannel(session, channel) {
+    const label = String(channel.label ?? '');
+    if (label.startsWith('file:')) {
+      if (session.locked || session.viewOnly) {
+        try { channel.close(); } catch { /* closed */ }
+        return;
+      }
+      receiveUpload(channel, { log: (...a) => this.log(`session ${session.id}: ${a.join(' ')}`) });
+      return;
+    }
+    this.wireDataChannel(session, channel);
+  }
 
   wireDataChannel(session, channel) {
     session.channel = channel;
@@ -314,19 +429,147 @@ export class SessionManager {
     // channel; run the setup once or the clipboard poller leaks a timer.
     if (session.channelReady) return;
     session.channelReady = true;
-    // Push the current clipboard once so the client starts in sync.
-    if (this.clipboard?.clipboardInfo?.().available !== false) {
+    if (session.locked) {
+      // Nothing is streamed until the right PIN arrives.
+      this.sendChannel(session, { t: 'auth.required', attemptsLeft: PIN_MAX_ATTEMPTS - session.pinAttempts });
+      return;
+    }
+    this.startFeatures(session);
+  }
+
+  /** Start streaming everything once the session is allowed to see the PC. */
+  startFeatures(session) {
+    // Push the current clipboard once so the client starts in sync (never
+    // to a view-only helper: the clipboard may hold private data).
+    if (!session.viewOnly && this.clipboard?.clipboardInfo?.().available !== false) {
       this.pushClipboard(session).catch(() => {});
       session.clipboardTimer = setInterval(() => {
         this.pushClipboard(session).catch(() => {});
       }, CLIPBOARD_POLL_MS);
       session.clipboardTimer.unref?.();
     }
-    // Degraded mode: stream JPEG frames over the data channel. In native mode
-    // the video track is fed directly (pump started with the peer).
-    if (this.backend.mode === 'jpeg') {
-      this.startFramePump(session);
+    this.startCursorReports(session);
+    // Video: JPEG frames over the data channel in degraded mode; in native
+    // mode the pump feeds the video track (started here after a PIN unlock).
+    this.startFramePump(session);
+    this.sendChannel(session, { t: 'audio.state', available: Boolean(this.backend.audio), on: Boolean(session.audioOff) });
+    this.sendChannel(session, {
+      t: 'curtain.state',
+      available: session.kind === 'access' && curtainSupported(),
+      on: session.curtainOn,
+    });
+  }
+
+  handlePin(session, msg) {
+    if (!session.locked) {
+      this.sendChannel(session, { t: 'auth.ok' });
+      return;
     }
+    const pin = typeof msg.pin === 'string' ? msg.pin : '';
+    if (this.security?.verifyPin?.(pin)) {
+      session.locked = false;
+      this.log(`session ${session.id}: PIN accepted`);
+      this.sendChannel(session, { t: 'auth.ok' });
+      this.startFeatures(session);
+      return;
+    }
+    session.pinAttempts += 1;
+    const left = PIN_MAX_ATTEMPTS - session.pinAttempts;
+    this.logWarn(`session ${session.id}: wrong PIN (${left} attempts left)`);
+    if (left <= 0) {
+      this.sendChannel(session, { t: 'auth.failed', attemptsLeft: 0 });
+      this.sendSignal('session.end', { sessionId: session.id, reason: 'pin_failed' });
+      setTimeout(() => this.teardown(session.id), 300);
+      return;
+    }
+    // A short delay slows down guessing.
+    setTimeout(() => this.sendChannel(session, { t: 'auth.failed', attemptsLeft: left }), 700);
+  }
+
+  setAudio(session, on) {
+    if (!this.backend.audio || !session.peer?.pushAudio) {
+      this.sendChannel(session, { t: 'audio.state', available: false, on: false });
+      return;
+    }
+    if (on && !session.audioOff) {
+      session.audioOff = this.audio.subscribe((frame) => session.peer?.pushAudio(frame));
+    } else if (!on && session.audioOff) {
+      session.audioOff();
+      session.audioOff = null;
+    }
+    this.sendChannel(session, { t: 'audio.state', available: true, on: Boolean(session.audioOff) });
+  }
+
+  async setCurtain(session, on) {
+    const available = session.kind === 'access' && curtainSupported();
+    if (!available) {
+      this.sendChannel(session, { t: 'curtain.state', available: false, on: false });
+      return;
+    }
+    if (on) {
+      session.curtainOn = true;
+      const ok = await this.curtain.show();
+      if (!this.sessions.has(session.id)) return;
+      if (!ok) {
+        session.curtainOn = false;
+        this.sendChannel(session, {
+          t: 'curtain.state',
+          available: true,
+          on: false,
+          error: 'Windows could not hide the curtain from the screen capture, so it was turned off.',
+        });
+        return;
+      }
+      this.log(`session ${session.id}: curtain on`);
+    } else {
+      session.curtainOn = false;
+      if (![...this.sessions.values()].some((s) => s.curtainOn)) this.curtain.hide();
+      this.log(`session ${session.id}: curtain off`);
+    }
+    this.sendChannel(session, { t: 'curtain.state', available: true, on: session.curtainOn });
+  }
+
+  requestFile(session) {
+    if (!session.peer?.createDataChannel) {
+      this.sendChannelError(session, 'file.request', 'File transfer is not available in this session.');
+      return;
+    }
+    if (session.picking) return;
+    session.picking = true;
+    this.sendChannel(session, { t: 'file.picking' });
+    pickFileOnPc()
+      .then((filePath) => {
+        if (!filePath) {
+          this.sendChannel(session, { t: 'file.none' });
+          return null;
+        }
+        return sendFile(filePath, (label) => session.peer?.createDataChannel(label), {
+          log: (...a) => this.log(`session ${session.id}: ${a.join(' ')}`),
+        });
+      })
+      .catch((err) => this.sendChannelError(session, 'file.request', err?.message ?? String(err)))
+      .finally(() => { session.picking = false; });
+  }
+
+  /** Stream the real pointer to the phone (throttled, latest value wins). */
+  startCursorReports(session) {
+    if (session.cursorOff) return;
+    session.cursorLastSent = 0;
+    session.cursorPending = null;
+    const flush = () => {
+      session.cursorTimer = null;
+      const c = session.cursorPending;
+      if (!c) return;
+      session.cursorPending = null;
+      session.cursorLastSent = Date.now();
+      this.sendChannel(session, { t: 'cursor', x: c.x, y: c.y, visible: c.visible, shape: c.shape });
+    };
+    session.cursorOff = this.cursor.subscribe((c) => {
+      session.cursorPending = c;
+      if (session.cursorTimer) return;
+      const wait = Math.max(0, CURSOR_MIN_INTERVAL_MS - (Date.now() - session.cursorLastSent));
+      session.cursorTimer = setTimeout(flush, wait);
+    });
   }
 
   async pushClipboard(session) {
@@ -421,6 +664,8 @@ export class SessionManager {
       this.logWarn(`session ${session.id}: dropping control message without a "t" kind`);
       return;
     }
+    if (session.locked && !LOCKED_ALLOWED.has(kind)) return;
+    if (session.viewOnly && !VIEW_ALLOWED.has(kind)) return;
     try {
       this.dispatchControl(session, kind, msg);
     } catch (err) {
@@ -453,7 +698,7 @@ export class SessionManager {
         if (inRange(msg.x) && inRange(msg.y)) {
           seq.push(() => this.input.moveAbs(Number(msg.x), Number(msg.y), { normalized: true }));
         }
-        seq.push(() => this.input.click(button));
+        seq.push(() => this.input.click(button, { double: msg.double === true }));
         seq.reduce((p, fn) => p.then(fn), Promise.resolve())
           .catch((err) => this.sendChannelError(session, type, err.message));
         return;
@@ -506,6 +751,17 @@ export class SessionManager {
           })
           .catch((err) => this.sendChannelError(session, type, err.message));
         return;
+
+      // -- PIN / sound / curtain / files --
+      case 'auth.pin':
+        return this.handlePin(session, msg);
+      case 'audio.set':
+        return this.setAudio(session, msg.on === true);
+      case 'curtain.set':
+        this.setCurtain(session, msg.on === true);
+        return;
+      case 'file.request':
+        return this.requestFile(session);
 
       // -- quality / stats --
       case 'quality.set':

@@ -29,6 +29,7 @@
   --ok: #7CC594;
   --danger: #F0A496;
   --shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  --scrim: rgba(0, 0, 0, .55);
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -48,6 +49,7 @@
     --ok: #2F7A4A;
     --danger: #B3402E;
     --shadow: 0 1px 2px rgba(23, 25, 28, .06);
+    --scrim: rgba(23, 25, 28, .45);
   }
 }
 * { box-sizing: border-box; }
@@ -58,13 +60,13 @@ body { font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-seri
 .topbar { display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-bottom: 1px solid var(--border); }
 .mark { width: 32px; height: 32px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; }
 .mark svg { width: 18px; height: 18px; }
-.wordmark { font-size: 19px; font-weight: 600; letter-spacing: -.2px; }
+.wordmark { font-size: 19px; font-weight: 600; letter-spacing: -.2px; white-space: nowrap; }
 .wordmark span { color: var(--text-3); font-weight: 400; margin-left: 6px; }
 .spacer { flex: 1; }
 .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); font-size: 13px; color: var(--text-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
 .dot.online { background: var(--ok); }
-.dot.starting { background: var(--accent); }
+.dot.starting, .dot.sharing { background: var(--accent); }
 
 /* ---- layout ---- */
 .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 61px); }
@@ -83,7 +85,7 @@ section + section { margin-top: 36px; }
 .art svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .body { padding: 32px 36px; display: flex; flex-direction: column; gap: 14px; }
 .body h1 { font-size: 30px; line-height: 1.2; font-weight: 600; margin: 0; letter-spacing: -.4px; }
-.body p { margin: 0; color: var(--text-2); max-width: 46ch; }
+.body p { margin: 0; color: var(--text-2); max-width: 50ch; }
 .meta { font-size: 13px; color: var(--text-3); }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .end { justify-content: flex-end; margin-top: auto; }
@@ -102,9 +104,14 @@ input:focus { border-color: var(--accent); }
 .code { display: flex; gap: 8px; }
 .code input { width: 46px; height: 54px; padding: 0; text-align: center; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .field { display: flex; flex-direction: column; gap: 6px; max-width: 380px; }
+.fields { display: flex; flex-wrap: wrap; gap: 12px; }
+.fields .field { flex: 1 1 160px; }
 .msg { font-size: 13px; min-height: 20px; }
 .msg.error { color: var(--danger); }
 .msg.ok { color: var(--ok); }
+.bigcode { font-size: 40px; font-weight: 600; letter-spacing: 6px; font-variant-numeric: tabular-nums; }
+.progress { height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; max-width: 420px; }
+.progress > div { height: 3px; background: var(--accent); transition: width 1s linear; }
 
 details { border-top: 1px solid var(--border); }
 summary { cursor: pointer; padding: 14px 20px; color: var(--text-2); font-weight: 500; list-style: none; }
@@ -116,20 +123,34 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
 .list span { color: var(--text-2); font-size: 14px; }
 .icon { width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--on-accent-soft); display: grid; place-items: center; flex: none; }
 .icon svg { width: 20px; height: 20px; }
+.notice { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--on-accent-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
 .hidden { display: none !important; }
 
+/* ---- consent dialog ---- */
+.scrim { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.dialog { width: 100%; max-width: 440px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+.dialog h3 { margin: 0; font-size: 22px; font-weight: 600; }
+.dialog p { margin: 0; color: var(--text-2); }
+
 @media (max-width: 1080px) {
-  .split { grid-template-columns: 1fr; }
+  .split { grid-template-columns: minmax(0, 1fr); }
   .art { height: 170px; }
 }
 @media (max-width: 820px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
   nav { display: none; }
   main { padding: 24px 16px 40px; }
   .art { height: 150px; }
   .body { padding: 24px 20px; }
   .body h1 { font-size: 24px; }
   .topbar { padding: 12px 16px; }
+  .bigcode { font-size: 30px; letter-spacing: 4px; }
+}
+@media (max-width: 440px) {
+  .code { gap: 5px; }
+  .code input { width: 38px; height: 48px; font-size: 19px; }
+  .wordmark span { display: none; }
+  .bigcode { font-size: 24px; letter-spacing: 2px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -148,9 +169,13 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
   <nav aria-label="Sections">
     <a href="#device" class="active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-      This device
+      Remote Access
     </a>
-    <a href="#relay">
+    <a href="#support">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.7-3.3 3-5 6.5-5s5.8 1.7 6.5 5M16 5.5a3.5 3.5 0 0 1 0 6.5M18.5 15c1.8.6 2.7 2.2 3 5"/></svg>
+      Remote Support
+    </a>
+    <a href="#relay" id="relayNav" class="hidden">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/></svg>
       Relay server
     </a>
@@ -161,6 +186,7 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
   </nav>
 
   <main>
+    <!-- ================= Remote Access ================= -->
     <section id="device">
       <h2 class="section">This device</h2>
       <div class="card">
@@ -181,9 +207,19 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
           <!-- Paired: host controls -->
           <div class="body hidden" id="pairedView">
             <h1 id="deviceName">This computer</h1>
-            <p id="deviceText">Remote access is off. Start the host so your paired phone can connect.</p>
+            <p id="deviceText">Remote access is off.</p>
+            <div class="notice hidden" id="pinNudge">Protect this PC with a PIN — the phone will ask for it before every session.</div>
             <div class="meta" id="deviceMeta"></div>
+            <div class="hidden" id="pinForm">
+              <div class="fields">
+                <div class="field"><label for="newPin">New PIN (6–12 digits)</label><input id="newPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+                <div class="field"><label for="newPin2">Repeat PIN</label><input id="newPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+              </div>
+              <div class="msg" id="pinMsg" role="status"></div>
+              <div class="row"><button class="ghost" id="pinCancel">Cancel</button><button class="primary" id="pinSave">Save PIN</button></div>
+            </div>
             <div class="row end">
+              <button class="ghost" id="changePin">Change PIN</button>
               <button class="ghost" id="repair">Pair again</button>
               <button class="danger hidden" id="stop">Turn off</button>
               <button class="primary" id="start">Turn on</button>
@@ -193,7 +229,10 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
           <!-- Not paired: set up remote access -->
           <div class="body hidden" id="setupView">
             <h1>Set up remote access</h1>
-            <p>In the Remote PC app, tap <b>Get a code</b> to get a one-time access code, then enter it here. Only your account will be able to control this PC.</p>
+            <div class="notice hidden" id="legacyNote" role="status">
+              <b>Update needed.</b> This PC was set up with the old relay server, so the Remote PC app can’t see it. Pair it again with a new code — it takes a few seconds.
+            </div>
+            <p>In the Remote PC app, tap <b>Get a code</b>, enter it here and choose a PIN. Only your account will be able to control this PC.</p>
             <div class="field">
               <label for="c0">Access code</label>
               <div class="code" id="code">
@@ -209,6 +248,10 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
               <label for="name">Computer name</label>
               <input id="name" maxlength="64" autocomplete="off">
             </div>
+            <div class="fields">
+              <div class="field"><label for="pin">PIN (6–12 digits)</label><input id="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+              <div class="field"><label for="pin2">Repeat PIN</label><input id="pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12"></div>
+            </div>
             <div class="msg" id="pairMsg" role="status"></div>
             <div class="row end">
               <button class="ghost hidden" id="cancelPair">Cancel</button>
@@ -223,11 +266,56 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
       </div>
     </section>
 
-    <section id="relay">
+    <!-- ================= Remote Support ================= -->
+    <section id="support">
+      <h2 class="section">Remote Support</h2>
+      <div class="card">
+        <div class="split">
+          <div class="art" aria-hidden="true">
+            <svg viewBox="0 0 300 260" preserveAspectRatio="xMidYMid meet">
+              <path d="M320 210 C 270 160, 210 200, 200 270 L 320 270 Z" fill="var(--accent)" opacity=".9"/>
+              <circle cx="60" cy="50" r="5" fill="var(--accent)"/>
+              <rect x="70" y="70" width="160" height="104" rx="8" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="2"/>
+              <rect x="86" y="86" width="128" height="72" rx="4" fill="var(--accent)"/>
+              <circle cx="132" cy="122" r="12" fill="none" stroke="var(--on-accent)" stroke-width="5"/>
+              <circle cx="168" cy="122" r="12" fill="none" stroke="var(--on-accent)" stroke-width="5"/>
+              <path d="M58 182 h184" stroke="var(--border-strong)" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="body">
+            <!-- idle -->
+            <div id="supIdle">
+              <h1>Share this screen</h1>
+              <p style="margin-top:12px">Let someone you trust see or control this computer for help. You get a one-time code to read to them, and you’ll be asked to allow the connection. No account is needed.</p>
+              <div class="row end" style="margin-top:18px"><button class="primary" id="supStart">Generate code</button></div>
+            </div>
+            <!-- waiting with code -->
+            <div id="supCode" class="hidden">
+              <h1>Your access code</h1>
+              <div class="bigcode" id="supDigits">···· ···· ····</div>
+              <div class="progress"><div id="supBar" style="width:100%"></div></div>
+              <p class="meta" id="supExpiry">Starting…</p>
+              <p>Give this code to the person helping you. They enter it in the Remote PC app → Support. You’ll be asked before anything is shared.</p>
+              <div class="row end"><button class="ghost" id="supCancel">Cancel</button></div>
+            </div>
+            <!-- sharing -->
+            <div id="supActive" class="hidden">
+              <h1>Sharing your screen</h1>
+              <p id="supWho"></p>
+              <div class="row end"><button class="primary" id="supStop">Stop sharing</button></div>
+            </div>
+            <div class="msg" id="supMsg" role="status"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Legacy relay ================= -->
+    <section id="relay" class="hidden">
       <h2 class="section">Relay server</h2>
       <div class="card">
         <div class="body">
-          <p>The relay connects this computer with your phone. Use the same address you entered in the app's settings.</p>
+          <p>Only used by PCs still set up with the old self-hosted relay.</p>
           <div class="field" style="max-width:520px">
             <label for="relayUrl">Relay address</label>
             <input id="relayUrl" placeholder="ws://192.168.1.20:8080" autocomplete="off" spellcheck="false">
@@ -238,33 +326,46 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
       </div>
     </section>
 
+    <!-- ================= Security ================= -->
     <section id="about">
       <h2 class="section">Security</h2>
       <div class="card list">
         <div>
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-          <div><b>Bound to your account</b><span>Pairing grants control to the account that created the code — not to whoever holds it.</span></div>
+          <div><b>Bound to your account, protected by a PIN</b><span>Only the account that paired this PC can connect, and only with the PIN you chose. The PIN is checked on this computer and never leaves it.</span></div>
         </div>
         <div>
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/></svg></div>
-          <div><b>Encrypted peer-to-peer</b><span>Screen and input travel directly between devices over WebRTC (DTLS/SRTP). Supabase only handles sign-in, pairing and connection setup.</span></div>
+          <div><b>Encrypted peer-to-peer</b><span>Screen, sound, input and files travel directly between devices over WebRTC (DTLS/SRTP). Supabase only handles sign-in, pairing and connection setup.</span></div>
         </div>
         <div>
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M7 7l.8 13h8.4L17 7"/></svg></div>
-          <div><b>Revoke anytime</b><span>Delete this computer from the app and its token stops working immediately.</span></div>
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 19 6v5.2c0 4.4-2.8 7.5-7 9.3-4.2-1.8-7-4.9-7-9.3V6l7-2.5Z"/></svg></div>
+          <div><b>You stay in control of support</b><span>Remote Support codes work once and expire after 5 minutes. Every helper must be allowed here, and “Stop sharing” is always on screen.</span></div>
         </div>
       </div>
     </section>
   </main>
 </div>
 
+<!-- consent dialog -->
+<div class="scrim hidden" id="consent" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+  <div class="dialog">
+    <h3 id="consentTitle">Allow this person in?</h3>
+    <p id="consentText"></p>
+    <p class="meta">Only allow people you know and trust. You can stop sharing at any time.</p>
+    <div class="row end"><button class="ghost" id="decline">Decline</button><button class="primary" id="allow">Allow</button></div>
+  </div>
+</div>
+
 <script>
 const $ = selector => document.querySelector(selector);
 const digits = [...document.querySelectorAll('#code input')];
 const STATE_LABEL = {stopped: 'Off', starting: 'Connecting…', online: 'Online'};
+const PIN_RE = /^\d{6,12}$/;
 let identity = null;
 let hostState = 'stopped';
 let repairing = false;
+let support = {state: 'idle', code: null, expiresAt: 0, request: null, who: null, mode: null};
 
 function setMsg(el, text, tone) {
   el.textContent = text || '';
@@ -272,30 +373,59 @@ function setMsg(el, text, tone) {
 }
 
 function render() {
-  const paired = identity && identity.paired && !repairing;
+  const legacy = Boolean(identity && identity.legacy);
+  const paired = identity && identity.paired && !legacy && !repairing;
+  $('#legacyNote').classList.toggle('hidden', !legacy);
   $('#pairedView').classList.toggle('hidden', !paired);
   $('#setupView').classList.toggle('hidden', paired);
-  $('#cancelPair').classList.toggle('hidden', !(identity && identity.paired));
-  $('#dot').className = 'dot ' + hostState;
-  $('#state').textContent = identity && identity.paired ? STATE_LABEL[hostState] : 'Not set up';
-  if (!identity) return;
-  $('#deviceName').textContent = identity.name || 'This computer';
-  const running = hostState !== 'stopped';
-  $('#start').classList.toggle('hidden', running);
-  $('#stop').classList.toggle('hidden', !running);
-  $('#deviceText').textContent = hostState === 'online'
-    ? 'Remote access is on. Your paired phone can connect to this computer.'
-    : hostState === 'starting'
-      ? 'Connecting to the relay server…'
-      : 'Remote access is off. Turn it on so your paired phone can connect.';
-  $('#deviceMeta').textContent = identity.deviceId ? `Device ${identity.deviceId.slice(0, 8)} · ${identity.serverUrl}` : '';
-  // The relay address only matters for the legacy self-hosted relay.
-  const relay = identity.backend === 'relay';
-  $('#relay').classList.toggle('hidden', !relay);
-  document.querySelector('nav a[href="#relay"]').classList.toggle('hidden', !relay);
-  if (!$('#name').value) $('#name').value = identity.name || '';
-  if (document.activeElement !== $('#relayUrl')) $('#relayUrl').value = identity.relayUrl || '';
+  $('#cancelPair').classList.toggle('hidden', !(identity && identity.paired) || legacy);
+  const sharing = support.state === 'sharing';
+  $('#dot').className = 'dot ' + (sharing ? 'sharing' : legacy ? 'starting' : hostState);
+  $('#state').textContent = sharing ? 'Sharing screen'
+    : legacy ? 'Update needed'
+    : identity && identity.paired ? STATE_LABEL[hostState] : 'Not set up';
+  if (identity) {
+    $('#deviceName').textContent = identity.name || 'This computer';
+    const running = hostState !== 'stopped';
+    $('#start').classList.toggle('hidden', running);
+    $('#stop').classList.toggle('hidden', !running);
+    $('#pinNudge').classList.toggle('hidden', identity.pinSet);
+    $('#changePin').textContent = identity.pinSet ? 'Change PIN' : 'Set a PIN';
+    $('#deviceText').textContent = hostState === 'online'
+      ? 'Remote access is on. Your phone can connect to this computer.'
+      : hostState === 'starting'
+        ? 'Connecting…'
+        : 'Remote access is off. Turn it on so your phone can connect.';
+    $('#deviceMeta').textContent = identity.deviceId
+      ? `Device ${identity.deviceId.slice(0, 8)} · PIN ${identity.pinSet ? 'on' : 'off'}`
+      : '';
+    if (!$('#name').value) $('#name').value = identity.name || '';
+    const relay = identity.backend === 'relay';
+    $('#relay').classList.toggle('hidden', !relay);
+    $('#relayNav').classList.toggle('hidden', !relay);
+    if (document.activeElement !== $('#relayUrl')) $('#relayUrl').value = identity.relayUrl || '';
+  }
+  // Remote Support
+  $('#supIdle').classList.toggle('hidden', support.state !== 'idle');
+  $('#supCode').classList.toggle('hidden', support.state !== 'code' && support.state !== 'starting');
+  $('#supActive').classList.toggle('hidden', !sharing);
+  if (support.code) {
+    $('#supDigits').textContent = support.code.replace(/(\d{4})(?=\d)/g, '$1 ');
+  }
+  if (sharing) {
+    $('#supWho').textContent = `${support.who} is ${support.mode === 'view' ? 'viewing' : 'controlling'} this computer.`;
+  }
 }
+
+function tickSupport() {
+  if (support.state !== 'code' || !support.expiresAt) return;
+  const left = Math.max(0, Math.round((support.expiresAt - Date.now()) / 1000));
+  $('#supExpiry').textContent = left > 0
+    ? `Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} · a new code appears automatically`
+    : 'Getting a new code…';
+  $('#supBar').style.width = `${Math.min(100, (left / 300) * 100)}%`;
+}
+setInterval(tickSupport, 1000);
 
 async function refresh() {
   identity = await window.host.identity();
@@ -304,7 +434,9 @@ async function refresh() {
 }
 
 function codeValue() { return digits.map(d => d.value).join(''); }
-function updatePairButton() { $('#pair').disabled = codeValue().length !== 6; }
+function updatePairButton() {
+  $('#pair').disabled = codeValue().length !== 6 || !PIN_RE.test($('#pin').value) || $('#pin').value !== $('#pin2').value;
+}
 
 digits.forEach((input, index) => {
   input.addEventListener('input', () => {
@@ -314,7 +446,6 @@ digits.forEach((input, index) => {
   });
   input.addEventListener('keydown', event => {
     if (event.key === 'Backspace' && !input.value && index > 0) digits[index - 1].focus();
-    if (event.key === 'Enter' && codeValue().length === 6) $('#pair').click();
   });
   input.addEventListener('paste', event => {
     const text = (event.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
@@ -325,13 +456,20 @@ digits.forEach((input, index) => {
     updatePairButton();
   });
 });
+['#pin', '#pin2'].forEach(id => $(id).addEventListener('input', () => {
+  $(id).value = $(id).value.replace(/\D/g, '');
+  updatePairButton();
+  const a = $('#pin').value, b = $('#pin2').value;
+  setMsg($('#pairMsg'), a && b && a !== b ? 'The PINs don’t match.' : '', a && b && a !== b ? 'error' : '');
+}));
 
 $('#pair').onclick = async () => {
   $('#pair').disabled = true;
   setMsg($('#pairMsg'), 'Pairing…');
-  const result = await window.host.pair({code: codeValue(), name: $('#name').value});
+  const result = await window.host.pair({code: codeValue(), name: $('#name').value, pin: $('#pin').value});
   if (result.ok) {
     digits.forEach(d => { d.value = ''; });
+    $('#pin').value = ''; $('#pin2').value = '';
     repairing = false;
     setMsg($('#pairMsg'), '');
     await refresh();
@@ -347,15 +485,84 @@ $('#start').onclick = async () => {
   if (!result.ok) { $('#deviceText').textContent = result.error; }
 };
 $('#stop').onclick = () => window.host.stop();
+
+// PIN change
+$('#changePin').onclick = () => { $('#pinForm').classList.remove('hidden'); $('#newPin').focus(); };
+$('#pinCancel').onclick = () => { $('#pinForm').classList.add('hidden'); setMsg($('#pinMsg'), ''); };
+['#newPin', '#newPin2'].forEach(id => $(id).addEventListener('input', () => { $(id).value = $(id).value.replace(/\D/g, ''); }));
+$('#pinSave').onclick = async () => {
+  const a = $('#newPin').value, b = $('#newPin2').value;
+  if (!PIN_RE.test(a)) { setMsg($('#pinMsg'), 'The PIN must be 6 to 12 digits.', 'error'); return; }
+  if (a !== b) { setMsg($('#pinMsg'), 'The PINs don’t match.', 'error'); return; }
+  const result = await window.host.setPin(a);
+  if (result.ok) {
+    $('#newPin').value = ''; $('#newPin2').value = '';
+    $('#pinForm').classList.add('hidden');
+    setMsg($('#pinMsg'), '');
+    identity = {...identity, ...result.identity};
+    render();
+  } else {
+    setMsg($('#pinMsg'), result.error, 'error');
+  }
+};
+
 $('#saveRelay').onclick = async () => {
   const result = await window.host.setRelay($('#relayUrl').value);
   if (result.ok) {
-    setMsg($('#relayMsg'), 'Saved. Restart remote access to use the new address.', 'ok');
+    setMsg($('#relayMsg'), 'Saved.', 'ok');
     await refresh();
   } else {
     setMsg($('#relayMsg'), result.error, 'error');
   }
 };
+
+// Remote Support
+$('#supStart').onclick = async () => {
+  setMsg($('#supMsg'), '');
+  support = {state: 'starting', code: null, expiresAt: 0, request: null};
+  $('#supDigits').textContent = '···· ···· ····';
+  $('#supExpiry').textContent = 'Starting…';
+  render();
+  await window.host.startSupport();
+};
+$('#supCancel').onclick = () => window.host.stopSupport();
+$('#supStop').onclick = () => window.host.stopSupport();
+function answer(allow) {
+  if (!support.request) return;
+  window.host.answerSupport({sessionId: support.request.sessionId, allow});
+  support.request = null;
+  $('#consent').classList.add('hidden');
+}
+$('#allow').onclick = () => answer(true);
+$('#decline').onclick = () => answer(false);
+
+window.host.onSupport(event => {
+  switch (event.event) {
+    case 'code':
+      support = {...support, state: 'code', code: event.code, expiresAt: event.expiresAt};
+      tickSupport();
+      break;
+    case 'request':
+      support.request = event;
+      $('#consentText').textContent = `${event.helperEmail} wants to ${event.mode === 'view' ? 'see your screen' : 'see and control this computer'}.`;
+      $('#consent').classList.remove('hidden');
+      $('#allow').focus();
+      break;
+    case 'started':
+      support = {...support, state: 'sharing', who: event.helperEmail, mode: event.mode};
+      break;
+    case 'error':
+      setMsg($('#supMsg'), event.message, 'error');
+      break;
+    case 'ended':
+    case 'stopped':
+      $('#consent').classList.add('hidden');
+      if (support.state === 'sharing') setMsg($('#supMsg'), 'Sharing stopped.', 'ok');
+      support = {state: 'idle', code: null, expiresAt: 0, request: null};
+      break;
+  }
+  render();
+});
 
 const logEl = $('#log');
 let logStarted = false;

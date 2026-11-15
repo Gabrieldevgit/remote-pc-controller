@@ -12,9 +12,10 @@ export type SessionPhase =
   | 'ended'
   | 'failed';
 
-export type PointerMode = 'trackpad' | 'direct';
+export type PointerMode = 'mouse' | 'touch' | 'trackpad';
 
 export interface SessionStats {
+  route?: 'direct' | 'relayed' | null;
   rttMs: number | null;
   fps: number | null;
   bitrateKbps: number | null;
@@ -68,7 +69,7 @@ export const useSessionStore = create<SessionState>(set => ({
   error: null,
   endReason: null,
   quality: 'adaptive',
-  pointerMode: 'trackpad',
+  pointerMode: 'mouse',
   keyboardOpen: false,
   statsVisible: false,
   stats: EMPTY_STATS,

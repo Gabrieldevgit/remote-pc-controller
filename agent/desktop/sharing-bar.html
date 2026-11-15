@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Sharing your screen</title>
+<style>
+  :root { --ivory: #F4F2ED; --charcoal: #17191C; --slate: #292E34; --copper: #C87545; --grey: #92969A; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--charcoal); color: var(--ivory); font: 14px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  .bar { height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 16px; border: 1px solid #3D434B; border-radius: 12px; -webkit-app-region: drag; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--copper); flex: none; }
+  .text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .text b { font-weight: 600; }
+  .muted { color: var(--grey); }
+  button { -webkit-app-region: no-drag; font: inherit; font-weight: 600; border: 0; border-radius: 99px; padding: 8px 16px; background: var(--copper); color: var(--charcoal); cursor: pointer; }
+  button:hover { opacity: .92; }
+</style>
+</head>
+<body>
+  <div class="bar" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="text" id="text"></span>
+    <button id="stop">Stop sharing</button>
+  </div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const who = params.get('who') || 'someone';
+  const mode = params.get('mode') === 'view' ? 'viewing' : 'controlling';
+  const text = document.getElementById('text');
+  const name = document.createElement('b');
+  name.textContent = who;
+  text.append('Your screen is shared — ', name, ' is ' + mode + ' it.');
+  document.getElementById('stop').onclick = () => window.host.stopSupport();
+</script>
+</body>
+</html>

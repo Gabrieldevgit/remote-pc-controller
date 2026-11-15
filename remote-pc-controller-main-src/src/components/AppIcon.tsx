@@ -28,6 +28,7 @@ export type AppIconName =
   | 'person'
   | 'power'
   | 'refresh'
+  | 'remove'
   | 'rotate'
   | 'save'
   | 'server'
@@ -84,6 +85,7 @@ export default function AppIcon({name, size = 20, color}: AppIconProps) {
       case 'person': return <><Circle {...c} cx="12" cy="8" r="3.5" /><Path {...c} d="M5 20c.8-3.4 3.2-5.2 7-5.2s6.2 1.8 7 5.2" /></>;
       case 'power': return <Path {...c} d="M12 3v8M7.1 5.9A8 8 0 1 0 17 6" />;
       case 'refresh': return <Path {...c} d="M19 8.5V4l-2 2A8 8 0 1 0 20 12M5 15.5V20l2-2" />;
+      case 'remove': return <Path {...c} d="M5 12h14" />;
       case 'rotate': return <><Rect {...c} x="7" y="3.5" width="10" height="17" rx="2" /><Path {...c} d="M3 9.5A9 9 0 0 1 5.5 5M21 14.5a9 9 0 0 1-2.5 4.5" /></>;
       case 'save': return <Path {...c} d="M5 4h12l2 2v14H5zM8 4v6h7V4M8 20v-6h8v6" />;
       case 'server': return <><Rect {...c} x="4" y="4" width="16" height="7" rx="1.8" /><Rect {...c} x="4" y="13" width="16" height="7" rx="1.8" /><Path {...c} d="M7.5 7.5h.01M7.5 16.5h.01" /></>;
