@@ -84,6 +84,13 @@ and has two parts, like Chrome Remote Desktop:
   **Allow / Decline**; while they are connected an always-on-top bar shows
   *"Your screen is shared — Stop sharing"*. No account is needed on this PC.
 
+- **Your phones** (signed in) — Android phones of the same account that
+  turned on *Available to my PCs* in the Remote PC app. **Connect** opens a
+  viewer window (`desktop/phone-viewer.html`): click = tap, drag =
+  swipe, right-click / Esc = Back, wheel = scroll, typing goes to the focused
+  field; toolbar: Back · Home · Recents · Notifications · Sound · Clipboard ⇄
+  · Send / Get file · Resolution · Disconnect. Files from the phone are saved
+  to `Downloads\Remote PC`. The phone must allow every session.
 - **Account & history** (optional) — sign in or create an account (the same
   one as the phone app). While signed in, *Set up remote access* needs no
   code, and **Connection history** lists who connected — account email and

@@ -22,4 +22,6 @@ export type RootStackParamList = {
     mode?: 'control' | 'view';
   };
   Setup: undefined;
+  /** "Control this phone from your PC" (src/lib/phoneHost.ts). */
+  PhoneHost: undefined;
 };

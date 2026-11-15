@@ -9,6 +9,8 @@ import com.facebook.react.ReactNativeHost
 import com.facebook.react.ReactPackage
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.oney.WebRTCModule.WebRTCModuleOptions
+import com.remotepccontroller.phonehost.PhoneHostPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -16,8 +18,8 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
+              // PC controls this phone (accessibility input, phone sound, availability).
+              add(PhoneHostPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"
@@ -33,6 +35,9 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // getDisplayMedia (phone screen → PC) needs react-native-webrtc's
+    // mediaProjection foreground service on Android 10+.
+    WebRTCModuleOptions.getInstance().enableMediaProjectionService = true
     loadReactNative(this)
   }
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:">
 <title>Remote PC Host</title>
 <style>
 :root {
@@ -58,8 +58,7 @@ body { font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-seri
 
 /* ---- top bar ---- */
 .topbar { display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-bottom: 1px solid var(--border); }
-.mark { width: 32px; height: 32px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; }
-.mark svg { width: 18px; height: 18px; }
+.mark { width: 34px; height: 34px; border-radius: 8px; display: block; }
 .wordmark { font-size: 19px; font-weight: 600; letter-spacing: -.2px; white-space: nowrap; }
 .wordmark span { color: var(--text-3); font-weight: 400; margin-left: 6px; }
 .spacer { flex: 1; }
@@ -133,6 +132,15 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
 .history .when { text-align: right; color: var(--text-3); font-size: 13px; white-space: nowrap; }
 .history .live { color: var(--accent); font-weight: 600; }
 .empty { padding: 20px 24px; color: var(--text-2); }
+.phones { display: grid; gap: 1px; background: var(--border); }
+.phones > div { background: var(--surface); padding: 14px 24px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 4px 16px; align-items: center; }
+.phones b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.phones span { color: var(--text-2); font-size: 14px; }
+.phones .state { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 560px) {
+  .phones > div { grid-template-columns: 40px minmax(0, 1fr); padding: 14px 16px; }
+  .phones button { grid-column: 2; justify-self: start; }
+}
 .signedin { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--on-accent-soft); display: grid; place-items: center; font-weight: 600; flex: none; }
 @media (max-width: 560px) {
@@ -172,9 +180,7 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
 </head>
 <body>
 <header class="topbar">
-  <div class="mark" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--on-accent)"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-  </div>
+  <img class="mark" src="icon.png" alt="" aria-hidden="true">
   <div class="wordmark">Remote PC<span>Host</span></div>
   <div class="spacer"></div>
   <div class="pill"><span class="dot" id="dot"></span><span id="state">Stopped</span></div>
@@ -189,6 +195,10 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
     <a href="#support">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.7-3.3 3-5 6.5-5s5.8 1.7 6.5 5M16 5.5a3.5 3.5 0 0 1 0 6.5M18.5 15c1.8.6 2.7 2.2 3 5"/></svg>
       Remote Support
+    </a>
+    <a href="#phones">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17.5h2"/></svg>
+      Your phones
     </a>
     <a href="#account">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.4 3.2-5.2 7-5.2s6.2 1.8 7 5.2"/></svg>
@@ -327,6 +337,18 @@ pre { margin: 0; padding: 16px 20px; max-height: 260px; overflow: auto; white-sp
             <div class="msg" id="supMsg" role="status"></div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ================= Your phones ================= -->
+    <section id="phones">
+      <h2 class="section">Your phones</h2>
+      <div class="card">
+        <div class="body" id="phonesIntro">
+          <p>See and control an Android phone signed in to your account: tap, swipe, type, Back / Home / Recents, sound, clipboard and files.</p>
+          <p class="meta" id="phonesHint">On the phone: Remote PC → Support → <b>Control this phone from your PC</b> → turn on <b>Available to my PCs</b>. The phone asks to allow every session.</p>
+        </div>
+        <div class="phones" id="phoneList"><div class="empty" id="phonesEmpty">Sign in under Account &amp; history to see your phones.</div></div>
       </div>
     </section>
 
@@ -646,6 +668,7 @@ async function loadAccount() {
   acct = await window.host.accountState();
   render();
   loadHistory();
+  loadPhones();
 }
 $('#acctSignIn').onclick = async () => {
   setBusy(true);
@@ -762,6 +785,57 @@ async function loadHistory() {
   }
 }
 setInterval(() => { if (!document.hidden) loadHistory(); }, 60000);
+
+// Your phones
+const PHONE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17.5h2"/></svg>';
+async function loadPhones() {
+  const box = $('#phoneList');
+  if (!acct.signedIn) {
+    box.innerHTML = '';
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = 'Sign in under Account & history to see your phones.';
+    box.appendChild(e);
+    return;
+  }
+  let result;
+  try { result = await window.host.phones(); } catch { return; }
+  box.textContent = '';
+  if (!result.ok || !result.phones.length) {
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = result.ok ? 'No phones yet. Turn on “Available to my PCs” in the Remote PC app on your phone.' : (result.error || 'Could not load your phones.');
+    box.appendChild(e);
+    return;
+  }
+  for (const phone of result.phones) {
+    const row = document.createElement('div');
+    const icon = document.createElement('div');
+    icon.className = 'icon';
+    icon.innerHTML = PHONE_ICON;
+    const text = document.createElement('div');
+    text.style.minWidth = '0';
+    const title = document.createElement('b');
+    title.textContent = phone.name;
+    const sub = document.createElement('span');
+    sub.className = 'state';
+    const dot = document.createElement('span');
+    dot.className = 'dot' + (phone.online ? ' online' : '');
+    const label = document.createElement('span');
+    label.textContent = `${phone.online ? 'Available' : 'Not available'}${phone.model ? ' · ' + phone.model : ''}`;
+    sub.append(dot, label);
+    text.append(title, sub);
+    const btn = document.createElement('button');
+    btn.className = phone.online ? 'primary' : 'ghost';
+    btn.textContent = 'Connect';
+    btn.disabled = !phone.online;
+    btn.title = phone.online ? '' : 'Open Remote PC on the phone and turn on “Available to my PCs”.';
+    btn.onclick = () => window.host.openPhone({id: phone.id, name: phone.name});
+    row.append(icon, text, btn);
+    box.appendChild(row);
+  }
+}
+setInterval(() => { if (!document.hidden) loadPhones(); }, 15000);
 
 const logEl = $('#log');
 let logStarted = false;

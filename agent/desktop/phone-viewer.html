@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; media-src blob: mediastream:">
+<title>Phone — Remote PC</title>
+<style>
+:root {
+  --bar: #17191C; --bar-2: #292E34; --text: #F4F2ED; --text-2: #C4C3BE; --text-3: #92969A;
+  --accent: #C87545; --border: #2F343B; --danger: #F0A496;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; color: var(--text); font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+.bar { height: 52px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: var(--bar); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.bar::-webkit-scrollbar { display: none; }
+.sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex: none; }
+.btn { flex: none; height: 36px; min-width: 36px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-weight: 600; }
+.btn:hover { background: var(--bar-2); }
+.btn:disabled { opacity: .4; cursor: default; background: transparent; }
+.btn.on { background: #3A2A20; color: #F2C6A8; }
+.btn svg { width: 20px; height: 20px; }
+.btn.end { color: var(--danger); border-color: var(--border); }
+select { flex: none; height: 32px; background: var(--bar-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; font: inherit; }
+.spacer { flex: 1; min-width: 4px; }
+.stage { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; display: grid; place-items: center; }
+video { width: 100%; height: 100%; object-fit: contain; background: #000; outline: none; }
+video.control { cursor: crosshair; }
+.overlay { position: absolute; inset: 52px 0 0 0; display: grid; place-items: center; padding: 24px; text-align: center; pointer-events: none; }
+.card { pointer-events: auto; max-width: 340px; background: var(--bar); border: 1px solid var(--border); border-radius: 16px; padding: 22px; display: grid; gap: 10px; }
+.card h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.card p { margin: 0; color: var(--text-2); }
+.card .actions { display: flex; justify-content: center; gap: 8px; margin-top: 6px; }
+.primary { background: var(--accent); color: #17191C; border-radius: 99px; padding: 8px 18px; border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+.spinner { width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--bar-2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.toasts { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 6px; pointer-events: none; }
+.toast { justify-self: center; max-width: 100%; background: rgba(23,25,28,.92); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text-2); }
+.badge { flex: none; color: var(--text-3); padding: 0 6px; white-space: nowrap; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="bar" role="toolbar" aria-label="Phone controls">
+  <button class="btn" id="back" title="Back (Esc or right-click)" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></button>
+  <button class="btn" id="home" title="Home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6.5"/></svg></button>
+  <button class="btn" id="recents" title="Recent apps" aria-label="Recent apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+  <button class="btn" id="notifications" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"/></svg></button>
+  <div class="sep"></div>
+  <button class="btn" id="sound" title="Phone sound" aria-label="Phone sound" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10H4Z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
+  <button class="btn" id="clipTo" title="Send this PC's clipboard to the phone" aria-label="Clipboard to phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 10v6M9.5 13.5 12 16l2.5-2.5"/></svg></button>
+  <button class="btn" id="clipFrom" title="Copy the phone's clipboard to this PC" aria-label="Clipboard from phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 16v-6M9.5 12.5 12 10l2.5 2.5"/></svg></button>
+  <button class="btn" id="sendFile" title="Send a file to the phone" aria-label="Send a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7.5 9.5 12 5l4.5 4.5M5 19h14"/></svg></button>
+  <button class="btn" id="getFile" title="Get a file from the phone (opens the picker on the phone)" aria-label="Get a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v11M7.5 11.5 12 16l4.5-4.5M5 19h14"/></svg></button>
+  <select id="res" title="Stream resolution" aria-label="Stream resolution">
+    <option value="auto">Auto</option>
+    <option value="1920x1080">1080p</option>
+    <option value="1600x900">900p</option>
+    <option value="1280x720">720p</option>
+    <option value="960x540">540p</option>
+    <option value="854x480">480p</option>
+    <option value="640x360">360p</option>
+  </select>
+  <span class="badge" id="badge"></span>
+  <div class="spacer"></div>
+  <button class="btn end" id="disconnect" title="Disconnect">Disconnect</button>
+</div>
+
+<div class="stage"><video id="video" autoplay playsinline muted tabindex="0"></video></div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <div class="spinner" id="spin"></div>
+    <h2 id="ovTitle">Connecting…</h2>
+    <p id="ovText"></p>
+    <div class="actions hidden" id="ovActions"><button class="primary" id="ovClose">Close</button></div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<input type="file" id="filePick" class="hidden" multiple>
+
+<script>
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const PHONE_ID = params.get('id');
+const PHONE_NAME = params.get('name') || 'your phone';
+const ICE = [{urls: 'stun:stun.l.google.com:19302'}, {urls: 'stun:stun1.l.google.com:19302'}];
+const CHUNK = 48 * 1024;
+const MAX_FILE = 1024 * 1024 * 1024;
+document.title = `${PHONE_NAME} — Remote PC`;
+
+let pc = null;
+let input = null;
+let audioCh = null;
+let started = false;
+let ended = false;
+let canControl = false;
+let screen = null;
+const pendingIce = [];
+
+function toast(text, ms = 3500) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = text;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+function overlay(title, text, {spin = false, close = false} = {}) {
+  $('#overlay').classList.toggle('hidden', !title);
+  $('#ovTitle').textContent = title || '';
+  $('#ovText').textContent = text || '';
+  $('#spin').classList.toggle('hidden', !spin);
+  $('#ovActions').classList.toggle('hidden', !close);
+}
+function send(msg) {
+  if (input && input.readyState === 'open') input.send(JSON.stringify(msg));
+}
+function setControls(on) {
+  for (const id of ['back', 'home', 'recents', 'notifications', 'clipTo', 'clipFrom', 'sendFile', 'getFile', 'sound', 'res']) $('#' + id).disabled = !on;
+}
+setControls(false);
+
+// ---- session / signaling ---------------------------------------------------------------
+
+function finish(title, text) {
+  if (ended) return;
+  ended = true;
+  setControls(false);
+  try { pc && pc.close(); } catch {}
+  overlay(title, text, {close: true});
+}
+
+window.phone.onEvent(ev => {
+  if (ev.type === 'state') {
+    if (ev.state === 'accepted') negotiate();
+    else if (ev.state === 'rejected') finish('Declined', `${PHONE_NAME} declined the request.`);
+    else if (ev.state === 'ended') finish('Disconnected', ev.endReason === 'timeout' ? 'Nobody answered on the phone.' : ev.endReason === 'capture_denied' ? 'Screen sharing was not allowed on the phone.' : 'The session has ended.');
+  } else if (ev.type === 'signal') {
+    if (ev.event === 'answer' && pc && ev.payload && typeof ev.payload.sdp === 'string') {
+      pc.setRemoteDescription({type: 'answer', sdp: ev.payload.sdp}).then(() => {
+        for (const c of pendingIce.splice(0)) pc.addIceCandidate(c).catch(() => {});
+      });
+    } else if (ev.event === 'ice' && ev.payload && typeof ev.payload.candidate === 'string') {
+      const c = {candidate: ev.payload.candidate, sdpMid: ev.payload.sdpMid ?? null, sdpMLineIndex: ev.payload.sdpMLineIndex ?? null};
+      if (pc && pc.remoteDescription) pc.addIceCandidate(c).catch(() => {});
+      else pendingIce.push(c);
+    } else if (ev.event === 'end') {
+      finish('Disconnected', 'Sharing was stopped on the phone.');
+    }
+  }
+});
+
+async function negotiate() {
+  if (started || ended) return;
+  started = true;
+  overlay('Connecting…', 'The phone allowed the connection.', {spin: true});
+  pc = new RTCPeerConnection({iceServers: ICE});
+  pc.addTransceiver('video', {direction: 'recvonly'});
+  input = pc.createDataChannel('input', {ordered: true});
+  audioCh = pc.createDataChannel('audio', {ordered: false, maxRetransmits: 0});
+  audioCh.binaryType = 'arraybuffer';
+  audioCh.onmessage = e => playPcm(e.data);
+  input.onopen = () => {
+    setControls(true);
+    sendResolution();
+  };
+  input.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch {} };
+  input.onclose = () => finish('Disconnected', 'The connection to the phone closed.');
+  pc.ontrack = e => {
+    const v = $('#video');
+    v.srcObject = e.streams[0] || new MediaStream([e.track]);
+    v.onloadedmetadata = () => { overlay(null); v.focus(); };
+  };
+  pc.ondatachannel = e => { if (e.channel.label.startsWith('file:')) receiveFile(e.channel); };
+  pc.onicecandidate = e => {
+    if (e.candidate) window.phone.signal('ice', {candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex});
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed') finish('Connection lost', 'Check that both devices are online, then connect again.');
+  };
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  window.phone.signal('offer', {sdp: offer.sdp});
+}
+
+function onMessage(msg) {
+  switch (msg.t) {
+    case 'screen':
+      screen = {width: msg.width, height: msg.height};
+      window.phone.fit(screen);
+      break;
+    case 'access':
+      canControl = msg.input === true;
+      $('#video').classList.toggle('control', canControl);
+      $('#badge').textContent = canControl ? '' : 'View only';
+      if (!canControl) toast('View only: on the phone, turn on Remote PC in Settings → Accessibility to allow control.', 7000);
+      break;
+    case 'audio.state':
+      $('#sound').disabled = !msg.available;
+      $('#sound').classList.toggle('on', msg.on === true);
+      $('#sound').setAttribute('aria-pressed', String(msg.on === true));
+      if (msg.error) toast(msg.error);
+      if (!msg.on) stopAudio();
+      break;
+    case 'clipboard.set':
+      window.phone.writeClipboard(String(msg.text || '')).then(() => toast(msg.text ? 'Phone clipboard copied to this PC.' : 'The phone clipboard is empty (Android only shares it while Remote PC is open).'));
+      break;
+    case 'quality.ack':
+      if (msg.size) $('#badge').textContent = (canControl ? '' : 'View only · ') + `${msg.size.width}×${msg.size.height}`;
+      break;
+    case 'file.picking':
+      toast('Pick a file on the phone…', 5000);
+      break;
+    case 'file.none':
+      toast('No file was picked.');
+      break;
+    case 'error':
+      toast(String(msg.message || 'Something went wrong on the phone.'));
+      break;
+  }
+}
+
+// ---- pointer → touch ------------------------------------------------------------------
+
+function toPhone(e) {
+  const v = $('#video');
+  const r = v.getBoundingClientRect();
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const w = vw * scale, h = vh * scale;
+  const left = r.left + (r.width - w) / 2, top = r.top + (r.height - h) / 2;
+  const x = (e.clientX - left) / w, y = (e.clientY - top) / h;
+  return {x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), inside: x >= 0 && x <= 1 && y >= 0 && y <= 1};
+}
+
+let down = false;
+let pendingMove = null;
+let moveTimer = null;
+let lastMoveAt = 0;
+const video = $('#video');
+// ~60 moves per second at most; the latest position wins. (Timers, not
+// requestAnimationFrame, so a background window keeps sending.)
+function flushMove() {
+  moveTimer = null;
+  if (pendingMove && down) {
+    send({t: 'touch', phase: 'move', x: pendingMove.x, y: pendingMove.y});
+    lastMoveAt = performance.now();
+  }
+  pendingMove = null;
+}
+video.addEventListener('pointerdown', e => {
+  if (!canControl || e.button !== 0) return;
+  const p = toPhone(e);
+  if (!p || !p.inside) return;
+  video.setPointerCapture(e.pointerId);
+  down = true;
+  send({t: 'touch', phase: 'down', x: p.x, y: p.y});
+});
+video.addEventListener('pointermove', e => {
+  if (!down) return;
+  const p = toPhone(e);
+  if (!p) return;
+  pendingMove = p;
+  if (!moveTimer) moveTimer = setTimeout(flushMove, Math.max(0, 16 - (performance.now() - lastMoveAt)));
+});
+function release(e) {
+  if (!down) return;
+  if (pendingMove) flushMove();
+  down = false;
+  pendingMove = null;
+  const p = toPhone(e) || {x: 0.5, y: 0.5};
+  send({t: 'touch', phase: 'up', x: p.x, y: p.y});
+}
+video.addEventListener('pointerup', release);
+video.addEventListener('pointercancel', release);
+video.addEventListener('contextmenu', e => { e.preventDefault(); if (canControl) send({t: 'nav', action: 'back'}); });
+
+let wheelAcc = 0, wheelTimer = null, wheelAt = null;
+video.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (!canControl) return;
+  const p = toPhone(e);
+  if (!p || !p.inside) return;
+  wheelAcc += e.deltaY;
+  wheelAt = p;
+  if (wheelTimer) return;
+  wheelTimer = setTimeout(() => {
+    // Wheel down = content moves up = finger swipes up.
+    const dy = Math.max(-0.6, Math.min(0.6, -wheelAcc / 800));
+    send({t: 'scroll', x: wheelAt.x, y: Math.min(0.85, Math.max(0.15, wheelAt.y)), dx: 0, dy});
+    wheelAcc = 0;
+    wheelTimer = null;
+  }, 120);
+}, {passive: false});
+
+// ---- keyboard ---------------------------------------------------------------------------
+
+const KEYS = new Set(['Backspace', 'Delete', 'Enter', 'NumpadEnter', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
+let textBuf = '';
+function flushText() { if (textBuf) { send({t: 'text', text: textBuf}); textBuf = ''; } }
+window.addEventListener('keydown', async e => {
+  if (!canControl || e.target.tagName === 'SELECT') return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'v') {
+      e.preventDefault();
+      const text = await window.phone.readClipboard();
+      if (text) { flushText(); send({t: 'text', text}); }
+    } else if (k === 'c' || k === 'x') {
+      e.preventDefault();
+      flushText();
+      send({t: 'key', code: k === 'c' ? 'Copy' : 'Cut'});
+      setTimeout(() => send({t: 'clipboard.get'}), 400);
+    } else if (k === 'a') {
+      e.preventDefault();
+      send({t: 'key', code: 'SelectAll'});
+    }
+    return;
+  }
+  if (e.key === 'Escape') { e.preventDefault(); flushText(); send({t: 'nav', action: 'back'}); return; }
+  if (KEYS.has(e.key)) { e.preventDefault(); flushText(); send({t: 'key', code: e.key}); return; }
+  if (e.key.length === 1 && !e.altKey) {
+    e.preventDefault();
+    textBuf += e.key;
+    setTimeout(flushText, 30);
+  }
+});
+
+// ---- toolbar ------------------------------------------------------------------------------
+
+for (const action of ['back', 'home', 'recents', 'notifications']) {
+  $('#' + action).onclick = () => { send({t: 'nav', action}); video.focus(); };
+}
+$('#clipTo').onclick = async () => {
+  const text = await window.phone.readClipboard();
+  send({t: 'clipboard.set', text});
+  toast(text ? 'Clipboard sent to the phone — long-press a field there and Paste.' : 'This PC’s clipboard is empty.');
+};
+$('#clipFrom').onclick = () => send({t: 'clipboard.get'});
+$('#sound').onclick = () => {
+  const on = !$('#sound').classList.contains('on');
+  if (on) ensureAudio();
+  send({t: 'audio.set', on});
+};
+$('#getFile').onclick = () => send({t: 'file.request'});
+$('#sendFile').onclick = () => $('#filePick').click();
+$('#filePick').onchange = () => { for (const f of $('#filePick').files) sendFile(f); $('#filePick').value = ''; };
+$('#res').onchange = () => { sendResolution(); video.focus(); };
+function sendResolution() {
+  const v = $('#res').value;
+  if (v === 'auto') send({t: 'quality.set', resolution: {mode: 'auto'}});
+  else { const [w, h] = v.split('x').map(Number); send({t: 'quality.set', resolution: {mode: 'preset', width: w, height: h}}); }
+}
+$('#disconnect').onclick = () => { window.phone.end('pc_closed'); finish('Disconnected', 'You ended the session.'); };
+$('#ovClose').onclick = () => window.close();
+
+// ---- phone sound (24 kHz mono PCM) -----------------------------------------------------------
+
+let actx = null, nextAt = 0;
+function ensureAudio() { if (!actx) actx = new AudioContext({sampleRate: 24000}); if (actx.state === 'suspended') actx.resume(); }
+function stopAudio() { nextAt = 0; }
+function playPcm(buf) {
+  if (!actx || !(buf instanceof ArrayBuffer)) return;
+  const pcm = new Int16Array(buf);
+  const b = actx.createBuffer(1, pcm.length, 24000);
+  const ch = b.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const now = actx.currentTime;
+  if (nextAt < now + 0.03 || nextAt > now + 0.4) nextAt = now + 0.08; // (re)start with a small jitter buffer
+  const src = actx.createBufferSource();
+  src.buffer = b;
+  src.connect(actx.destination);
+  src.start(nextAt);
+  nextAt += b.duration;
+}
+
+// ---- files (same protocol as PC ↔ phone: docs/DATA_CHANNEL.md) ------------------------------------
+
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function sendFile(file) {
+  if (!pc || file.size > MAX_FILE) { toast(file.size > MAX_FILE ? 'Files up to 1 GB can be sent.' : 'Not connected.'); return; }
+  const id = newId();
+  const ch = pc.createDataChannel('file:' + id, {ordered: true});
+  ch.binaryType = 'arraybuffer';
+  ch.bufferedAmountLowThreshold = 1024 * 1024;
+  ch.onmessage = e => {
+    if (typeof e.data !== 'string') return;
+    const m = JSON.parse(e.data);
+    if (m.t === 'file.saved') { toast(`${file.name} saved on the phone (${m.path || 'Downloads/Remote PC'}).`, 5000); ch.close(); }
+    else if (m.t === 'file.error' || m.t === 'file.cancel') { toast(`${file.name}: ${m.message || 'cancelled'}`); ch.close(); }
+  };
+  ch.onopen = async () => {
+    ch.send(JSON.stringify({t: 'file.header', id, name: file.name, size: file.size, mime: file.type || 'application/octet-stream'}));
+    toast(`Sending ${file.name}…`);
+    for (let off = 0; off < file.size; off += CHUNK) {
+      if (ch.readyState !== 'open') return;
+      while (ch.bufferedAmount > 8 * 1024 * 1024) await new Promise(r => { ch.onbufferedamountlow = r; });
+      ch.send(await file.slice(off, off + CHUNK).arrayBuffer());
+    }
+    ch.send(JSON.stringify({t: 'file.end', id}));
+  };
+}
+function receiveFile(ch) {
+  ch.binaryType = 'arraybuffer';
+  let header = null, parts = [], got = 0;
+  ch.onmessage = e => {
+    if (typeof e.data !== 'string') { if (header) { parts.push(e.data); got += e.data.byteLength; } return; }
+    const m = JSON.parse(e.data);
+    if (m.t === 'file.header') {
+      if (!(m.size >= 0 && m.size <= MAX_FILE)) { ch.send(JSON.stringify({t: 'file.error', message: 'File too large.'})); ch.close(); return; }
+      header = m;
+      toast(`Receiving ${m.name}…`);
+    } else if (m.t === 'file.end' && header) {
+      if (got !== header.size) { ch.send(JSON.stringify({t: 'file.error', message: 'The file arrived incomplete.'})); ch.close(); return; }
+      const url = URL.createObjectURL(new Blob(parts, {type: header.mime || 'application/octet-stream'}));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = String(header.name || 'file').replace(/[\\/:*?"<>|]/g, '_');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      ch.send(JSON.stringify({t: 'file.saved', id: header.id}));
+      toast(`${header.name} saved to Downloads\\Remote PC.`, 5000);
+      parts = [];
+      ch.close();
+    } else if (m.t === 'file.cancel') {
+      toast('The phone cancelled the transfer.');
+      ch.close();
+    }
+  };
+}
+
+// ---- start ---------------------------------------------------------------------------------
+
+overlay(`Waiting for ${PHONE_NAME}…`, 'Tap Allow on the phone, then accept Android’s screen-sharing prompt.', {spin: true});
+window.phone.start(PHONE_ID).then(result => {
+  if (!result.ok) finish('Could not connect', result.error || 'Try again.');
+});
+window.addEventListener('beforeunload', () => { if (!ended) window.phone.end('pc_closed'); });
+</script>
+</body>
+</html>

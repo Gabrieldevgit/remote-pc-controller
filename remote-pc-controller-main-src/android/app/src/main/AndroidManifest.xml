@@ -8,6 +8,16 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <!-- Haptic feedback on taps/clicks (RemoteSessionScreen, TrackpadPanel). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- PC controls this phone (src/lib/phoneHost.ts): screen sharing runs in
+         react-native-webrtc's mediaProjection foreground service, the
+         "available to your PCs" service keeps requests arriving, phone sound
+         uses AudioPlaybackCapture (needs RECORD_AUDIO; the mic is never used). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- The relay is self-hosted and commonly served over plain ws:// on the
          LAN (e.g. ws://192.168.x.x:8080). WebRTC media itself is always
@@ -32,6 +42,34 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Notification taps: remotepc://phone-host, remotepc://phone-request/<id> -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="remotepc" />
+        </intent-filter>
       </activity>
+
+      <service
+        android:name=".phonehost.RemoteControlService"
+        android:label="Remote PC"
+        android:exported="false"
+        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+        <intent-filter>
+          <action android:name="android.accessibilityservice.AccessibilityService" />
+        </intent-filter>
+        <meta-data
+          android:name="android.accessibilityservice"
+          android:resource="@xml/remote_control_service" />
+      </service>
+
+      <service
+        android:name=".phonehost.PhoneAvailabilityService"
+        android:exported="false"
+        android:foregroundServiceType="specialUse">
+        <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Lets the user's own PC (same account) request to control this phone; each session is approved on the phone." />
+      </service>
     </application>
 </manifest>

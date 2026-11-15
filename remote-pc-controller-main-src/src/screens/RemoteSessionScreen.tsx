@@ -21,6 +21,8 @@ import {ThemeOverride, useTheme} from '../theme/ThemeProvider';
 import {mix, shape, spacing, stateOpacity, typography, withAlpha} from '../theme/tokens';
 import {SessionClient, type SessionStatsSnapshot} from '../lib/sessionClient';
 import {TransferManager, type Transfer} from '../lib/fileTransfer';
+import {resolutionLabel, sizeLabel, type Size, type StreamResolution} from '../lib/resolution';
+import ResolutionPicker from '../components/ResolutionPicker';
 import {useSettingsStore, type VideoQuality} from '../store/settings';
 import {useSessionStore, type PointerMode, type SessionPhase} from '../store/session';
 import KeyboardBar from '../components/KeyboardBar';
@@ -466,6 +468,10 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
   const [toolbarVisible, setToolbarVisible] = React.useState(true);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [filesOpen, setFilesOpen] = React.useState(false);
+  const [resolutionOpen, setResolutionOpen] = React.useState(false);
+  const [resolution, setResolutionState] = React.useState<StreamResolution>(() => useSettingsStore.getState().resolution);
+  const [pcScreen, setPcScreen] = React.useState<Size | null>(null);
+  const [streamSize, setStreamSize] = React.useState<Size | null>(null);
   // Follow the phone's rotation: in landscape the PC screen fills the display.
   const [rotationLocked, setRotationLocked] = React.useState(false);
   const window = useWindowDimensions();
@@ -581,6 +587,17 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
         case 'audio.state':
           setAudio({available: message.available === true, on: message.on === true});
           return;
+        case 'quality.ack': {
+          const screen = message.screen as Size | null | undefined;
+          const size = message.size as Size | null | undefined;
+          if (screen?.width && screen?.height) {
+            setPcScreen({width: screen.width, height: screen.height});
+          }
+          if (size?.width && size?.height) {
+            setStreamSize({width: size.width, height: size.height});
+          }
+          return;
+        }
         case 'curtain.state':
           setCurtain({available: message.available === true, on: message.on === true});
           if (typeof message.error === 'string') {
@@ -661,6 +678,8 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
       support ? 'support' : 'access',
     );
     clientRef.current = client;
+    // Stream resolution chosen in Settings (or earlier in this session).
+    client.setResolution(resolutionRef.current);
 
     const manager = new TransferManager(
       label => client.createChannel(label),
@@ -710,6 +729,14 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
   React.useEffect(() => {
     navigation.setOptions({orientation: rotationLocked ? 'portrait' : 'all'});
   }, [navigation, rotationLocked]);
+
+  const resolutionRef = React.useRef(resolution);
+  resolutionRef.current = resolution;
+  const changeResolution = (next: StreamResolution) => {
+    setResolutionState(next);
+    clientRef.current?.setResolution(next);
+    setResolutionOpen(false);
+  };
 
   const setQuality = (next: VideoQuality) => {
     useSessionStore.getState().setQuality(next);
@@ -957,6 +984,21 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
           <Text style={[styles.menuSection, {color: palette.textSecondary}]}>Quality</Text>
           <Segmented options={QUALITY_OPTIONS} value={quality} onChange={setQuality} />
 
+          <Text style={[styles.menuSection, {color: palette.textSecondary}]}>Resolution</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => { setMenuOpen(false); setResolutionOpen(true); }}
+            style={({pressed}) => [styles.resRow, {borderColor: palette.border}, pressed && {opacity: 0.8}]}>
+            <View style={styles.flex}>
+              <Text style={[styles.resTitle, {color: palette.textPrimary}]}>{resolutionLabel(resolution)}</Text>
+              <Text style={[styles.resSub, {color: palette.textSecondary}]}>
+                {streamSize ? `Receiving ${sizeLabel(streamSize)}` : 'Size of the PC picture'}
+                {pcScreen ? ` · PC ${sizeLabel(pcScreen)}` : ''}
+              </Text>
+            </View>
+            <AppIcon name="chevron-right" color={palette.textSecondary} size={20} />
+          </Pressable>
+
           <Text style={[styles.menuSection, {color: palette.textSecondary}]}>Actions</Text>
           <View style={styles.menuGrid}>
             <MenuAction icon="clipboard" label="Send clipboard" disabled={!interactive}
@@ -1024,6 +1066,13 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
         </ScrollView>
       </Sheet>
 
+      <Sheet visible={resolutionOpen} onClose={() => { setResolutionOpen(false); pingToolbar(); }}>
+        <ScrollView contentContainerStyle={styles.sheetBody}>
+          <Text style={[styles.menuSection, {color: palette.textSecondary}]}>Stream resolution</Text>
+          <ResolutionPicker value={resolution} onChange={changeResolution} native={pcScreen} />
+        </ScrollView>
+      </Sheet>
+
       <TransfersSheet
         visible={filesOpen}
         transfers={transfers}
@@ -1063,6 +1112,9 @@ export default function RemoteSessionScreen(props: RemoteSessionProps) {
 const styles = StyleSheet.create({
   root: {flex: 1},
   flex: {flex: 1},
+  resRow: {flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderWidth: 1, borderRadius: shape.md, padding: spacing.md},
+  resTitle: {...typography.bodyLarge, fontWeight: '600'},
+  resSub: {...typography.bodySmall},
   topBarAnchor: {
     position: 'absolute',
     left: 0,

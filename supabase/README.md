@@ -12,6 +12,7 @@ Windows agent talk to it directly; no relay server is needed.
 | **Storage** | Private bucket `screenshots`, one folder per device: screenshots (PNG), camera photos (JPEG) and camera clips (MP4), 50 MB per file. |
 | **Edge Functions** | `pair-device` — exchanges a 6-digit code for a device login. `support-host` — creates a temporary Remote Support host login (20 per IP per hour). |
 | **Connection history** | `remote_sessions.client_name` / `support_sessions.client_name` (phone model, set by the app) and `rpc('device_connection_history', {p_device})` — owner-only list of sessions with the requester's email, used by Remote PC Host. |
+| **Phone host** | `phones` (owner-only, presence via `rpc('phone_heartbeat')`) and `phone_sessions` (a PC asking to control one of the owner's phones; only while the phone is online) — signaling on private topics `phone:<uuid>` authorized by `private.can_use_phone_topic()`. |
 | **pg_cron** | `remote-pc-cleanup` (hourly, minute 17) — deletes expired support hosts and their logins, old codes / rate-limit rows, finished sessions and commands older than 30 days. |
 
 Screen, sound, input and files never pass through Supabase: they flow
@@ -80,8 +81,8 @@ npx supabase functions deploy support-host --no-verify-jwt
 
 `migrations/20261114235000_remote_pc_backend.sql`,
 `20261114235100_merge_session_update_policies.sql` and
-`20261115010000_remote_support.sql` and `20261115030000_camera_and_history.sql`
-are already applied to the project, and
+`20261115010000_remote_support.sql`, `20261115030000_camera_and_history.sql`
+and `20261115040000_phone_hosts.sql` are already applied to the project, and
 both Edge Functions are deployed. `migrations/20261028023437_remote_controller_core.sql` is an older
 draft written for a different project; it was never applied here and
 conflicts with the current schema — delete it before using `db push`.

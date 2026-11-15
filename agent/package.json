@@ -1,6 +1,6 @@
 {
   "name": "remote-pc-agent",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Remote PC Host and Windows agent for Remote PC Controller: pairs the PC with Supabase and serves remote-desktop sessions (screen, sound, input, clipboard, files, Remote Support).",
   "private": true,
   "type": "module",
@@ -64,7 +64,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "desktop/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -72,7 +73,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "Remote PC Host",
-      "artifactName": "Remote-PC-Host-Setup-${version}.${ext}"
+      "artifactName": "Remote-PC-Host-Setup-${version}.${ext}",
+      "installerIcon": "desktop/icon.ico",
+      "uninstallerIcon": "desktop/icon.ico"
     },
     "portable": {
       "artifactName": "Remote-PC-Host-${version}-portable.${ext}"

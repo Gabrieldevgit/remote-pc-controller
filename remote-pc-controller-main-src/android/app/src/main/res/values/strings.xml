@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Remote PC Controller</string>
+    <string name="remote_control_service_summary">Lets your own PC control this phone during a session you allow.</string>
+    <string name="remote_control_service_description">Remote PC uses this to tap, swipe, type and press Back, Home or Recents on this phone — only while a PC signed in to your account is connected and you allowed the session. It does not collect or send what is on the screen through this service; the screen is shared separately, only after you accept Android\'s screen-sharing prompt.</string>
 </resources>

@@ -1,6 +1,8 @@
 import {create} from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import {AUTO_RESOLUTION, sanitizeResolution, type StreamResolution} from '../lib/resolution';
+
 export type VideoQuality = 'high' | 'medium' | 'low' | 'adaptive';
 export type PointerColor = 'classic' | 'black' | 'copper';
 /** mouse = big draggable cursor (default), touch = tap where you touch, trackpad = laptop pad. */
@@ -22,6 +24,8 @@ interface PersistedSettings {
   pointerMode: PointerModeSetting;
   /** Play the computer's sound during sessions. */
   computerSound: boolean;
+  /** Size of the PC picture streamed to this phone (default Auto). */
+  resolution: StreamResolution;
 }
 
 interface SettingsState extends PersistedSettings {
@@ -45,6 +49,7 @@ const DEFAULTS: PersistedSettings = {
   pointerSpeed: 1.5,
   pointerMode: 'mouse',
   computerSound: true,
+  resolution: AUTO_RESOLUTION,
 };
 
 function clampSize(value: unknown): number {
@@ -76,6 +81,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
       : DEFAULTS.pointerMode,
     computerSound:
       typeof raw.computerSound === 'boolean' ? raw.computerSound : DEFAULTS.computerSound,
+    resolution: sanitizeResolution(raw.resolution),
   };
 }
 
@@ -88,6 +94,7 @@ function snapshot(state: SettingsState): PersistedSettings {
     pointerSpeed: state.pointerSpeed,
     pointerMode: state.pointerMode,
     computerSound: state.computerSound,
+    resolution: state.resolution,
   };
 }
 

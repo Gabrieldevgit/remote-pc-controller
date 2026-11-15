@@ -9,7 +9,7 @@
 
 import jpegJs from 'jpeg-js';
 
-import { ScreenFramePump } from './capture.js';
+import { ScreenFramePump, primaryScreenSize } from './capture.js';
 import { CursorTracker } from './cursor.js';
 import { AudioCapture } from './audio.js';
 import { Curtain, curtainSupported } from './curtain.js';
@@ -60,6 +60,47 @@ const JPEG_CHUNK_SIZE = 16 * 1024;
 const BINARY_TYPE_JPEG = 0x01;
 
 const ADAPTIVE_ORDER = ['low', 'medium', 'high'];
+
+/**
+ * Stream resolution (what the phone receives; the PC display is untouched).
+ *   auto   — fit the phone's screen (sent as `client`), capped by the
+ *            quality level's width, which adaptive mode steps down on bad RTT
+ *   preset / custom — fit inside width × height
+ * The capture always keeps the PC screen's aspect ratio and never upscales.
+ */
+const RESOLUTION_LIMITS = { minWidth: 320, maxWidth: 3840, minHeight: 240, maxHeight: 2160 };
+
+function normalizeResolution(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const mode = raw.mode === 'preset' || raw.mode === 'custom' ? raw.mode : raw.mode === 'auto' ? 'auto' : null;
+  if (!mode) return null;
+  if (mode === 'auto') return { mode, width: null, height: null };
+  const width = Math.round(Number(raw.width));
+  const height = Math.round(Number(raw.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (width < RESOLUTION_LIMITS.minWidth || width > RESOLUTION_LIMITS.maxWidth) return null;
+  if (height < RESOLUTION_LIMITS.minHeight || height > RESOLUTION_LIMITS.maxHeight) return null;
+  return { mode, width, height };
+}
+
+function normalizeClient(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = Math.round(Number(raw.width));
+  const b = Math.round(Number(raw.height));
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a < 100 || b < 100 || a > 8000 || b > 8000) return null;
+  // PC screens are landscape: compare long side with long side.
+  return { width: Math.max(a, b), height: Math.min(a, b) };
+}
+
+/** Fit `native` inside `box` (keep aspect, no upscaling, even sizes). */
+export function fitSize(native, box) {
+  if (!native) return null;
+  let scale = 1;
+  if (box?.width) scale = Math.min(scale, box.width / native.width);
+  if (box?.height) scale = Math.min(scale, box.height / native.height);
+  const even = (v) => Math.max(2, Math.floor(v / 2) * 2);
+  return { width: even(native.width * scale), height: even(native.height * scale) };
+}
 
 /** Swap B/R channels: PowerShell gives BGRA, encoders want RGBA. */
 function bgraToRgba(bgra, pixelCount) {
@@ -598,9 +639,10 @@ export class SessionManager {
       onError: (err) => this.logWarn(`session ${session.id}: capture error: ${err?.message ?? err}`),
       log: (...args) => this.log(`[capture] ${args.join(' ')}`),
     });
-    session.pump.configure(settings);
+    session.pump.configure(this.captureSettings(session));
     const how = this.backend.mode === 'native' ? 'video track feed' : 'JPEG stream over data channel';
-    this.log(`session ${session.id}: ${how} started (${settings.width}w @${settings.fps}fps)`);
+    const box = this.captureBox(session);
+    this.log(`session ${session.id}: ${how} started (fit ${box.width}x${box.height || 'auto'} @${settings.fps}fps)`);
   }
 
   /** Encode a raw BGRA frame to JPEG and chunk it onto the data channel. */
@@ -829,6 +871,38 @@ export class SessionManager {
       .catch((err) => this.sendChannelError(session, 'key', err.message));
   }
 
+  /** Width × height box the capture must fit in, from resolution + quality. */
+  captureBox(session) {
+    const quality = this.resolveQuality(session);
+    const res = session.resolution ?? { mode: 'auto' };
+    if (res.mode !== 'auto') return { width: res.width, height: res.height };
+    const client = session.clientScreen;
+    if (!client) return { width: quality.width, height: 0 };
+    const width = Math.min(quality.width, client.width);
+    return { width, height: Math.round(client.height * (width / client.width)) };
+  }
+
+  captureSettings(session) {
+    const quality = this.resolveQuality(session);
+    const box = this.captureBox(session);
+    return { fps: quality.fps, maxWidth: box.width, maxHeight: box.height || 0 };
+  }
+
+  /** Tell the client what it gets: level, resolution, native and actual size. */
+  sendQualityAck(session) {
+    primaryScreenSize().then((screen) => {
+      const box = this.captureBox(session);
+      this.sendChannel(session, {
+        t: 'quality.ack',
+        quality: session.quality,
+        adaptive: session.adaptive,
+        resolution: session.resolution ?? { mode: 'auto', width: null, height: null },
+        screen,
+        size: screen ? fitSize(screen, box) : null,
+      });
+    });
+  }
+
   resolveQuality(session) {
     if (session.quality) return session.quality;
     const level = this.backend.defaultQuality ?? 'high';
@@ -837,6 +911,21 @@ export class SessionManager {
   }
 
   handleQualitySet(session, msg) {
+    // Resolution / client screen can come alone or with a level.
+    if (msg.resolution !== undefined) {
+      const res = normalizeResolution(msg.resolution);
+      if (!res) throw new Error('invalid resolution (width 320-3840, height 240-2160)');
+      session.resolution = res;
+    }
+    if (msg.client !== undefined) session.clientScreen = normalizeClient(msg.client);
+    if (msg.level === undefined && (msg.resolution !== undefined || msg.client !== undefined)) {
+      this.resolveQuality(session);
+      if (session.pump) session.pump.configure(this.captureSettings(session));
+      const box = this.captureBox(session);
+      this.log(`session ${session.id}: resolution ${session.resolution?.mode ?? 'auto'} (fit ${box.width}x${box.height || 'auto'})`);
+      this.sendQualityAck(session);
+      return;
+    }
     let level = typeof msg.level === 'string' ? msg.level.toLowerCase() : '';
     // Internal adaptive steps pass `fromAdaptive`; an explicit client choice
     // switches adaptive mode on ('adaptive') or off (fixed level / custom).
@@ -863,9 +952,9 @@ export class SessionManager {
       session.quality = { level, ...QUALITY_PRESETS[level] };
     }
     session.lastAdaptiveChange = Date.now();
-    if (session.pump) session.pump.configure(session.quality);
+    if (session.pump) session.pump.configure(this.captureSettings(session));
     this.log(`session ${session.id}: quality set to ${session.quality.level} (${session.quality.width}w @${session.quality.fps}fps)`);
-    this.sendChannel(session, { t: 'quality.ack', quality: session.quality, adaptive: session.adaptive });
+    this.sendQualityAck(session);
   }
 
   handleStatsPing(session, msg) {

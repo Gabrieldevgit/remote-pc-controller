@@ -75,10 +75,13 @@ function Send-Raw([int]$w, [int]$h) {
   $out.Flush()
 }
 
-function Capture-Raw([int]$maxWidth) {
+function Capture-Raw([int]$maxWidth, [int]$maxHeight) {
   $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  # Fit the screen inside maxWidth x maxHeight, keeping its aspect ratio and
+  # never upscaling.
   $scale = 1.0
   if ($maxWidth -gt 0 -and $bounds.Width -gt $maxWidth) { $scale = $maxWidth / $bounds.Width }
+  if ($maxHeight -gt 0 -and ($bounds.Height * $scale) -gt $maxHeight) { $scale = $maxHeight / $bounds.Height }
   # Even dimensions keep I420 conversion simple.
   $w = [int][Math]::Max(2, [Math]::Floor($bounds.Width * $scale / 2) * 2)
   $h = [int][Math]::Max(2, [Math]::Floor($bounds.Height * $scale / 2) * 2)
@@ -105,6 +108,7 @@ function Capture-Raw([int]$maxWidth) {
 # thread (Console.In.Peek would block on an idle pipe).
 $script:stop = $false
 $script:maxWidth = 1280
+$script:maxHeight = 0
 $script:intervalMs = 100
 while (-not $script:stop) {
   $line = $null
@@ -114,11 +118,12 @@ while (-not $script:stop) {
     if ($cmd.op -eq 'stop') { exit 0 }
     if ($cmd.op -eq 'raw') {
       if ($cmd.maxWidth) { $script:maxWidth = [int]$cmd.maxWidth }
+      if ($null -ne $cmd.maxHeight) { $script:maxHeight = [int]$cmd.maxHeight }
       if ($null -ne $cmd.intervalMs) { $script:intervalMs = [int]$cmd.intervalMs }
     }
   }
   try {
-    Capture-Raw $script:maxWidth
+    Capture-Raw $script:maxWidth $script:maxHeight
   } catch {
     $err = @{ op = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress
     [Console]::Error.WriteLine($err)
@@ -180,7 +185,7 @@ export class ScreenFramePump {
     this.onError = onError ?? (() => {});
     this.log = log ?? (() => {});
     this.child = null;
-    this.settings = { fps: 15, maxWidth: 1280 };
+    this.settings = { fps: 15, maxWidth: 1280, maxHeight: 0 };
     this.buffer = Buffer.alloc(0);
     this.restarting = false;
     this.stopped = false;
@@ -188,11 +193,15 @@ export class ScreenFramePump {
   }
 
   /** Apply new settings; (re)starts the worker if needed. */
-  configure({ fps, maxWidth, width } = {}) {
+  configure({ fps, maxWidth, width, maxHeight, height } = {}) {
     // Session quality presets describe the target as `width`; accept both.
     if (maxWidth === undefined) maxWidth = width;
+    if (maxHeight === undefined) maxHeight = height;
     if (Number.isFinite(fps) && fps > 0 && fps <= 60) this.settings.fps = Math.round(fps);
     if (Number.isFinite(maxWidth) && maxWidth >= 160 && maxWidth <= 3840) this.settings.maxWidth = Math.round(maxWidth);
+    // 0 / null = no height limit (width only).
+    if (maxHeight === 0 || maxHeight === null) this.settings.maxHeight = 0;
+    else if (Number.isFinite(maxHeight) && maxHeight >= 120 && maxHeight <= 2160) this.settings.maxHeight = Math.round(maxHeight);
     if (!this.child) this.start();
     else this.sendConfig();
   }
@@ -229,10 +238,10 @@ export class ScreenFramePump {
   }
 
   sendConfig() {
-    const { fps, maxWidth } = this.settings;
+    const { fps, maxWidth, maxHeight } = this.settings;
     const intervalMs = Math.max(0, Math.round(1000 / fps));
     try {
-      this.child?.stdin.write(`${JSON.stringify({ op: 'raw', maxWidth, intervalMs })}\n`);
+      this.child?.stdin.write(`${JSON.stringify({ op: 'raw', maxWidth, maxHeight, intervalMs })}\n`);
     } catch { /* worker gone; it restarts itself */ }
   }
 
@@ -274,4 +283,20 @@ export class ScreenFramePump {
       this.child = null;
     }
   }
+}
+
+let screenSizePromise = null;
+/** The primary screen's real size in pixels (DPI-aware), cached. */
+export function primaryScreenSize() {
+  screenSizePromise ??= runScript(
+    "Add-Type -AssemblyName System.Windows.Forms; $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output ('' + $b.Width + 'x' + $b.Height)",
+    { timeoutMs: 15_000 },
+  ).then((out) => {
+    const m = /(\d+)x(\d+)/.exec(out);
+    return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
+  }).catch(() => {
+    screenSizePromise = null;
+    return null;
+  });
+  return screenSizePromise;
 }

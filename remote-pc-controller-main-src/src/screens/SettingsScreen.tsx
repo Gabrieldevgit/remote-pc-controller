@@ -22,6 +22,8 @@ import {useDevicesStore} from '../store/devices';
 import Card from '../components/Card';
 import SecondaryButton from '../components/SecondaryButton';
 import SectionHeader from '../components/SectionHeader';
+import ResolutionPicker from '../components/ResolutionPicker';
+import {resolutionLabel} from '../lib/resolution';
 import Segmented from '../components/Segmented';
 import AppIcon, {type AppIconName} from '../components/AppIcon';
 import {AppBar, ScreenHeader} from '../components/Header';
@@ -141,6 +143,7 @@ export default function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {preference, setPreference} = useThemeMode();
   const defaultQuality = useSettingsStore(s => s.defaultQuality);
+  const resolution = useSettingsStore(s => s.resolution);
   const haptics = useSettingsStore(s => s.haptics);
   const pointerSize = useSettingsStore(s => s.pointerSize);
   const pointerColor = useSettingsStore(s => s.pointerColor);
@@ -287,6 +290,9 @@ export default function SettingsScreen() {
 
         <SectionHeader title="Remote sessions" />
         <Card padded={false}>
+          <Row icon="fullscreen" title="Stream resolution" subtitle={`${resolutionLabel(resolution)} — the size of the PC picture sent to this phone. You can change it during a session too.`}>
+            <ResolutionPicker value={resolution} onChange={next => update({resolution: next})} />
+          </Row>
           <Row icon="tune" title="Default quality" subtitle={QUALITY_HINT[defaultQuality]}>
             <Segmented options={QUALITY_OPTIONS} value={defaultQuality} onChange={setDefaultQuality} />
           </Row>

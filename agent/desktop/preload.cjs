@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('host', {
   signUp: request => ipcRenderer.invoke('account:sign-up', request),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   history: () => ipcRenderer.invoke('account:history'),
+  phones: () => ipcRenderer.invoke('phones:list'),
+  openPhone: phone => ipcRenderer.invoke('phones:open', phone),
   onLog: listener => ipcRenderer.on('agent:log', (_event, value) => listener(value)),
   onState: listener => ipcRenderer.on('agent:state', (_event, value) => listener(value)),
   onSupport: listener => ipcRenderer.on('support:event', (_event, value) => listener(value)),

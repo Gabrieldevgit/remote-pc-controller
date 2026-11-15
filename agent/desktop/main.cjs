@@ -8,7 +8,7 @@
 // Sections: Remote Access (pair, PIN, on/off) and Remote Support (share this
 // screen with a one-time code; every helper must be allowed here).
 
-const {app, BrowserWindow, ipcMain, safeStorage, screen, shell} = require('electron');
+const {app, BrowserWindow, clipboard, ipcMain, safeStorage, screen, session: electronSession, shell} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -47,6 +47,7 @@ function account() {
   return accountPromise;
 }
 const PIN_RE = /^\d{6,12}$/;
+const APP_ICON = path.join(__dirname, 'icon.ico');
 
 let windowRef;
 let barRef;
@@ -143,6 +144,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: '#17191C',
     title: 'Remote PC Host',
+    icon: APP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -402,4 +404,113 @@ ipcMain.handle('account:history', async () => {
   const sessions = [...remote.sessions, ...support]
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
   return {ok: true, signedIn: true, owned: remote.owned, reason: remote.reason, sessions};
+});
+
+// ---- your phones (PC controls the phone) ----------------------------------------------
+
+const phoneViewers = new Map(); // webContents id → {win, session}
+
+function openPhoneViewer(phone) {
+  for (const v of phoneViewers.values()) {
+    if (v.phoneId === phone.id && !v.win.isDestroyed()) {
+      v.win.focus();
+      return;
+    }
+  }
+  const work = screen.getPrimaryDisplay().workArea;
+  const height = Math.min(900, Math.round(work.height * 0.9));
+  const win = new BrowserWindow({
+    width: Math.round(height * 0.5),
+    height,
+    minWidth: 320,
+    minHeight: 360,
+    backgroundColor: '#000000',
+    title: `${phone.name} — Remote PC`,
+    icon: APP_ICON,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'phone-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const id = win.webContents.id;
+  phoneViewers.set(id, {win, phoneId: phone.id, session: null});
+  win.loadFile(path.join(__dirname, 'phone-viewer.html'), {
+    search: new URLSearchParams({id: phone.id, name: String(phone.name || 'Phone')}).toString(),
+  });
+  win.on('closed', () => {
+    const v = phoneViewers.get(id);
+    phoneViewers.delete(id);
+    v?.session?.end('pc_closed').catch(() => {});
+  });
+}
+
+ipcMain.handle('phones:list', async () => {
+  try {
+    return await (await account()).phones();
+  } catch (err) {
+    return {ok: false, error: err?.message ?? 'Could not load your phones.', phones: []};
+  }
+});
+ipcMain.handle('phones:open', (_event, phone) => {
+  if (!phone || typeof phone.id !== 'string') return {ok: false};
+  openPhoneViewer({id: phone.id, name: String(phone.name ?? 'Phone').slice(0, 64)});
+  return {ok: true};
+});
+
+ipcMain.handle('phone:start', async (event, phoneId) => {
+  const viewer = phoneViewers.get(event.sender.id);
+  if (!viewer || viewer.phoneId !== phoneId) return {ok: false, error: 'Unknown phone.'};
+  try {
+    viewer.session = await (await account()).openPhoneSession(phoneId, readIdentity().name || os.hostname(), ev => {
+      if (!event.sender.isDestroyed()) event.sender.send('phone:event', ev);
+    });
+    return {ok: true, sessionId: viewer.session.id};
+  } catch (err) {
+    return {ok: false, error: err?.message ?? 'Could not reach the phone.'};
+  }
+});
+ipcMain.on('phone:signal', (event, msg) => {
+  const viewer = phoneViewers.get(event.sender.id);
+  if (viewer?.session && msg && typeof msg.event === 'string') viewer.session.signal(msg.event, msg.payload ?? {});
+});
+ipcMain.handle('phone:end', async (event, reason) => {
+  const viewer = phoneViewers.get(event.sender.id);
+  await viewer?.session?.end(typeof reason === 'string' ? reason : 'pc_closed');
+  return {ok: true};
+});
+/** Resize the viewer to the phone's shape (toolbar 52 px on top). */
+ipcMain.handle('phone:fit', (event, size) => {
+  const viewer = phoneViewers.get(event.sender.id);
+  const w = Number(size?.width), h = Number(size?.height);
+  if (!viewer || viewer.win.isDestroyed() || !(w > 0 && h > 0)) return;
+  if (viewer.win.isMaximized() || viewer.win.isFullScreen()) return;
+  const work = screen.getDisplayMatching(viewer.win.getBounds()).workArea;
+  const maxH = Math.round(work.height * 0.92) - 52;
+  const maxW = Math.round(work.width * 0.92);
+  const scale = Math.min(maxH / h, maxW / w, 1);
+  const cw = Math.max(320, Math.round(w * scale));
+  const ch = Math.round(h * scale) + 52;
+  viewer.win.setContentSize(cw, ch);
+});
+ipcMain.handle('clipboard:read', () => clipboard.readText().slice(0, 100000));
+ipcMain.handle('clipboard:write', (_event, text) => {
+  clipboard.writeText(String(text ?? '').slice(0, 100000));
+  return true;
+});
+
+// Files received from a phone go to Downloads\Remote PC (no save dialog).
+app.whenReady().then(() => {
+  electronSession.defaultSession.on('will-download', (_event, item) => {
+    const dir = path.join(app.getPath('downloads'), 'Remote PC');
+    fs.mkdirSync(dir, {recursive: true});
+    const safe = item.getFilename().replace(/[\\/:*?"<>|]/g, '_') || 'file';
+    const ext = path.extname(safe);
+    const base = safe.slice(0, safe.length - ext.length);
+    let target = path.join(dir, safe);
+    for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base} (${i})${ext}`);
+    item.setSavePath(target);
+  });
 });

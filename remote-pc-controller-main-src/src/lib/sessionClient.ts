@@ -28,6 +28,7 @@ import type {RealtimeChannel} from '@supabase/supabase-js';
 
 import {supabase} from './supabase';
 import {clientName} from './clientName';
+import {AUTO_RESOLUTION, resolutionPayload, type StreamResolution} from './resolution';
 import {BackendError, toBackendError} from './backend';
 import {
   DATA_CHANNEL_LABEL,
@@ -56,7 +57,7 @@ export interface SessionStatsSnapshot {
   packetsLost: number | null;
 }
 
-const ICE_SERVERS = [
+export const ICE_SERVERS = [
   {urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']},
 ];
 
@@ -125,6 +126,7 @@ export class SessionClient {
   private acceptTimer: ReturnType<typeof setTimeout> | null = null;
   private lastStats: LastStats | null = null;
   private quality: VideoQuality = 'adaptive';
+  private resolution: StreamResolution = AUTO_RESOLUTION;
   private ended = false;
   private statsSeq = 0;
   private callbacks: SessionClientCallbacks;
@@ -176,6 +178,12 @@ export class SessionClient {
   setQuality(quality: VideoQuality) {
     this.quality = quality;
     this.sendInput({t: 'quality.set', level: quality});
+  }
+
+  /** Stream resolution (Auto / preset / custom), applied live. */
+  setResolution(resolution: StreamResolution) {
+    this.resolution = resolution;
+    this.sendInput({t: 'quality.set', ...resolutionPayload(resolution)});
   }
 
   private emitPhase(phase: SessionPhaseUpdate, error?: string) {
@@ -337,7 +345,7 @@ export class SessionClient {
         this.callbacks.onDataChannelOpen();
         this.emitPhase('connected');
         // Tell the agent which quality the user picked (adaptive by default).
-        this.sendInput({t: 'quality.set', level: this.quality});
+        this.sendInput({t: 'quality.set', level: this.quality, ...resolutionPayload(this.resolution)});
         // Candidates may have queued while the pc/channel were coming up.
         this.flushPendingIce();
       };

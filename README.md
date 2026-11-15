@@ -113,6 +113,9 @@ Compared with Chrome Remote Desktop:
 | Multiple connection modes | ✅ | Remote Access (own PCs) and Remote Support (code) |
 | Quick actions without a session | ✅ | lock, shutdown, restart, volume, find-me, screenshot, processes, sysinfo |
 | PC camera | ✅ | Owner-only quick actions: **Camera photo** and **Record video** (10 or 30 s, no sound) from the PC's webcam; photos open in the viewer, clips are saved to the phone's Downloads/Remote PC |
+| **PC controls the phone** | ✅ | Remote PC Host → *Your phones* → Connect: see the phone, click/drag = tap/swipe, wheel = scroll, type, Back/Home/Recents/Notifications, phone sound (Android 10+), clipboard, files both ways, resolution. Same account; the phone allows each session (Android's screen-sharing prompt); input needs the app's accessibility service |
+| Stream resolution | ✅ | Auto (fits the phone), 16 presets from 3840×2160 to 640×360 (only those the PC can deliver), or Custom W×H — the PC's display is never changed |
+| App icon | ✅ | Same icon for the Android app and Remote PC Host (`assets/`) |
 | Account on the PC & connection history | ✅ | Optional sign-in in Remote PC Host: set up remote access without a code, and see which account and which phone connected, when and for how long |
 | Cross-platform client | 🟡 | Android tested; iOS builds need a Mac; web client is planned |
 | Organisations, admin support, unattended access, policies | ⏳ | Roadmap |
@@ -155,9 +158,6 @@ commands): [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md).
 
 ## Roadmap
 
-- **Control the phone from the PC** — Android host (MediaProjection screen
-  capture + AccessibilityService input) reusing the same Supabase signaling
-  and data-channel protocol, with the same features as the PC host.
 - **Web client** — connect from any browser.
 - **Organisations** — shared device lists, admin-initiated support,
   unattended access and policies (clipboard / files / curtain on or off).

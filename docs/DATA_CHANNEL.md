@@ -120,7 +120,7 @@ mobile UI does not send all of them yet.
 
 | Message | Fields | Effect |
 |---|---|---|
-| `quality.set` | `level`: `high`\|`medium`\|`low`\|`adaptive`, or `{level:"custom", width, fps, jpegQuality}` (width 160–3840, fps 1–60, quality 10–95) | Change streaming quality; replies `quality.ack` |
+| `quality.set` | `level`: `high`\|`medium`\|`low`\|`adaptive`, or `{level:"custom", width, fps, jpegQuality}` (width 160–3840, fps 1–60, quality 10–95); optional `resolution` and `client` (section 7) | Change streaming quality / stream resolution; replies `quality.ack` |
 | `stats.ping` | optional `seq` (echoed back), optional `rttMs` (drives adaptive quality) | Reply `stats.pong` |
 | `input.media` | `key`: `volume_up`, `volume_down`, `volume_mute`, `play_pause`, `next_track`, `prev_track`, `stop_media`, … | Media key |
 | `input.ctrlaltdel` | — | Best-effort Ctrl+Alt+Del (Windows blocks SAS injection from user mode, so this usually reports an error) |
@@ -200,3 +200,53 @@ are sanitised and de-duplicated by the receiver.
   the Windows *Open* dialog (the remote user picks the file with the pointer)
   and opens the channel; the phone saves to `Downloads/Remote PC`.
 - Not available while locked or in view-only sessions.
+
+## 7. Stream resolution
+
+The size of the PC picture the phone receives; the PC's own display is
+never changed. Sent in `quality.set` (alone or with `level`):
+
+```json
+{"t": "quality.set",
+ "resolution": {"mode": "auto" | "preset" | "custom", "width": 1536, "height": 864},
+ "client": {"width": 2400, "height": 1080}}
+```
+
+- `auto` — fit the phone's screen (`client`, physical pixels), capped by
+  the quality level's width; adaptive mode lowers it on a slow link.
+- `preset` / `custom` — fit inside `width` × `height` (320–3840 ×
+  240–2160).
+- The capture always keeps the PC screen's aspect ratio and never upscales
+  beyond its native size.
+
+`quality.ack` then carries `resolution`, `screen` (the PC's native size,
+e.g. `{width: 1920, height: 1080}`) and `size` (what is actually sent).
+
+## 8. Phone host — the PC controls a phone
+
+Remote PC Host (Chromium WebRTC) is the **offerer**; the phone
+(`src/lib/phoneHost.ts`) answers with its screen track (MediaProjection via
+`getDisplayMedia`). Signaling runs on the private topic `phone:<session id>`
+(`offer`, `answer`, `ice`, `end`). Channels opened by the PC: `input`
+(ordered, JSON), `audio` (unordered, no retransmits); either side opens
+`file:<id>` channels (section 6).
+
+PC → phone (`input`):
+
+| Message | Fields | Effect |
+|---|---|---|
+| `touch` | `phase`: `down`\|`move`\|`up`, `x`, `y` (0..1 of the phone screen) | One live finger (accessibility gestures): click = tap, drag = swipe/drag, hold = long press |
+| `scroll` | `x`, `y`, `dx`, `dy` (fractions of the screen, ±0.9) | Short swipe (mouse wheel) |
+| `nav` | `action`: `back`\|`home`\|`recents`\|`notifications`\|`quick_settings`\|`power`\|`lock`\|`screenshot` | Android global action |
+| `text` | `text` | Insert at the cursor of the focused field |
+| `key` | `code`: `Backspace`, `Delete`, `Enter`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `Escape` (= Back), `SelectAll`, `Copy`, `Cut`, `Paste` | Editing keys |
+| `clipboard.set` / `clipboard.get` | `text` | Write / read the phone clipboard (Android only shares it while the app is in front) |
+| `audio.set` | `on` | Phone sound (Android 10+): 24 kHz mono 16-bit PCM, 20 ms per binary message on `audio` |
+| `file.request` | — | Opens the document picker on the phone; the file comes back on a `file:<id>` channel |
+| `quality.set` | `resolution` (as section 7, landscape-first box) | Live capture size, keeping the phone's shape |
+
+Phone → PC: `screen {width, height, rotation}` (on connect and on
+rotation), `access {input}` (accessibility service on/off — off = view
+only), `audio.state {available, on, sampleRate?, error?}`,
+`quality.ack {size, screen}`, `clipboard.set`, `file.picking`, `file.none`,
+`error`.

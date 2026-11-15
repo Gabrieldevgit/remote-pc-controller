@@ -85,7 +85,11 @@ export interface ClipboardSetMessage {
 /** Change the agent's capture quality (width / fps / JPEG quality). */
 export interface QualitySetMessage {
   t: 'quality.set';
-  level: 'high' | 'medium' | 'low' | 'adaptive';
+  level?: 'high' | 'medium' | 'low' | 'adaptive';
+  /** Stream size box (src/lib/resolution.ts); the PC display is untouched. */
+  resolution?: {mode: 'auto' | 'preset' | 'custom'; width?: number; height?: number};
+  /** This phone's screen in pixels, used by Auto. */
+  client?: {width: number; height: number};
 }
 
 /** Liveness + RTT report; the agent adapts quality from `rttMs` in adaptive mode. */

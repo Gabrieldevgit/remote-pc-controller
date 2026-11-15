@@ -1,5 +1,5 @@
 import React from 'react';
-import {KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -7,6 +7,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useTheme} from '../theme/ThemeProvider';
 import {shape, spacing, typography} from '../theme/tokens';
 import {redeemSupportCode} from '../lib/backend';
+import {usePhoneHostStore} from '../lib/phoneHost';
 import {useAuthStore} from '../store/auth';
 import Card from '../components/Card';
 import PrimaryButton from '../components/PrimaryButton';
@@ -38,6 +39,7 @@ function groupCode(digits: string) {
 export default function SupportScreen() {
   const {palette} = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const phoneAvailable = usePhoneHostStore(s => s.available);
   const token = useAuthStore(s => s.token);
   const email = useAuthStore(s => s.email);
   const [digits, setDigits] = React.useState('');
@@ -126,17 +128,25 @@ export default function SupportScreen() {
               </Text>
             </View>
           </Card>
-          <Card style={styles.helpCard}>
-            <View style={[styles.helpIcon, {backgroundColor: palette.surfaceContainer}]}>
-              <AppIcon name="devices" color={palette.textTertiary} size={22} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={[styles.helpTitle, {color: palette.textPrimary}]}>Share this phone</Text>
-              <Text style={[styles.cardText, {color: palette.textTertiary}]}>
-                Coming in a future update: let a computer see and control this phone.
-              </Text>
-            </View>
-          </Card>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('PhoneHost')}
+            style={({pressed}) => pressed && {opacity: 0.85}}>
+            <Card style={styles.helpCard}>
+              <View style={[styles.helpIcon, {backgroundColor: palette.primaryContainer}]}>
+                <AppIcon name="devices" color={palette.onPrimaryContainer} size={22} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={[styles.helpTitle, {color: palette.textPrimary}]}>Control this phone from your PC</Text>
+                <Text style={[styles.cardText, {color: palette.textSecondary}]}>
+                  {phoneAvailable
+                    ? 'Available to your PCs. Open Remote PC Host on your PC → Your phones.'
+                    : 'See and use this phone from Remote PC Host on your computer — tap to set up.'}
+                </Text>
+              </View>
+              <AppIcon name="chevron-right" color={palette.textSecondary} size={20} />
+            </Card>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

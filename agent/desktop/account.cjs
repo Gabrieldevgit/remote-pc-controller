@@ -16,6 +16,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {createClient} = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -66,6 +67,7 @@ function createAccount({file, url, key, safeStorage}) {
   const storage = new SecureFileStorage(file, safeStorage);
   const supabase = createClient(url, key, {
     auth: {storage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false},
+    realtime: {transport: WebSocket, params: {eventsPerSecond: 50}},
   });
 
   async function currentUser() {
@@ -113,6 +115,87 @@ function createAccount({file, url, key, safeStorage}) {
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.code) throw new Error('The server did not return a code.');
       return String(row.code);
+    },
+
+    // ---- phones (PC controls the phone) -----------------------------------------
+
+    /** The account's phones that opted in, with a fresh online flag. */
+    async phones() {
+      if (!(await currentUser())) return {ok: false, error: 'Sign in first.', phones: []};
+      const {data, error} = await supabase
+        .from('phones')
+        .select('id,name,model,android_version,online,last_seen_at,capabilities')
+        .order('name');
+      if (error) return {ok: false, error: friendlyAuthError(error), phones: []};
+      const now = Date.now();
+      return {
+        ok: true,
+        phones: (data ?? []).map(p => ({
+          id: p.id,
+          name: p.name,
+          model: p.model,
+          androidVersion: p.android_version,
+          capabilities: p.capabilities ?? {},
+          online: Boolean(p.online && p.last_seen_at && now - Date.parse(p.last_seen_at) < 60_000),
+          lastSeenAt: p.last_seen_at,
+        })),
+      };
+    },
+
+    /**
+     * Ask a phone for a session and relay its signaling. `onEvent` receives
+     * {type:'state', state, endReason} and {type:'signal', event, payload}.
+     * Returns {id, signal(event, payload), end(reason)}.
+     */
+    async openPhoneSession(phoneId, pcName, onEvent) {
+      if (!(await currentUser())) throw new Error('Sign in first.');
+      const {data, error} = await supabase
+        .from('phone_sessions')
+        .insert({phone_id: phoneId, client_name: String(pcName ?? 'PC').slice(0, 80)})
+        .select('id,state')
+        .single();
+      if (error || !data) {
+        const msg = String(error?.message ?? '');
+        throw new Error(/phone_offline/.test(msg) ? 'The phone is not available right now. Open Remote PC on it and turn on “Available to my PCs”.' : friendlyAuthError(error));
+      }
+      const id = data.id;
+      let closed = false;
+      const row = supabase
+        .channel(`phone-row:${id}`)
+        .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'phone_sessions', filter: `id=eq.${id}`},
+          change => onEvent({type: 'state', state: change.new.state, endReason: change.new.end_reason ?? null}))
+        .subscribe(async status => {
+          if (status === 'SUBSCRIBED') {
+            const {data: cur} = await supabase.from('phone_sessions').select('state,end_reason').eq('id', id).single();
+            if (cur && cur.state !== 'requested') onEvent({type: 'state', state: cur.state, endReason: cur.end_reason ?? null});
+          }
+        });
+      await supabase.realtime.setAuth();
+      const sig = supabase.channel(`phone:${id}`, {config: {private: true, broadcast: {self: false, ack: true}}});
+      for (const event of ['answer', 'ice', 'end']) {
+        sig.on('broadcast', {event}, ({payload}) => onEvent({type: 'signal', event, payload}));
+      }
+      await new Promise((resolve, reject) => {
+        sig.subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') resolve();
+          else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') reject(new Error(err?.message ?? 'Could not open the signaling channel.'));
+        });
+      });
+      return {
+        id,
+        signal(event, payload) {
+          if (!closed && (event === 'offer' || event === 'ice')) void sig.send({type: 'broadcast', event, payload});
+        },
+        async end(reason = 'pc_closed') {
+          if (closed) return;
+          closed = true;
+          try { await sig.send({type: 'broadcast', event: 'end', payload: {reason}}); } catch { /* channel gone */ }
+          await supabase.from('phone_sessions').update({state: 'ended', end_reason: String(reason).slice(0, 64)})
+            .eq('id', id).in('state', ['requested', 'accepted']).then(undefined, () => {});
+          sig.unsubscribe();
+          row.unsubscribe();
+        },
+      };
     },
 
     /**
