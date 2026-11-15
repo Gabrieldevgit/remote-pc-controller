@@ -1,0 +1,24 @@
+# Native build outputs
+android/app/build/
+android/build/
+android/app/.cxx/
+android/.gradle/
+
+# Release signing credentials — never commit real values.
+android/keystore.properties
+android/app/release.keystore
+android/app/*.keystore.orig
+
+# Machine-specific paths (local Android SDK location)
+android/local.properties
+
+# Environment / secrets
+.env.local
+.env*.local
+
+# Metro / tooling
+*.jsbundle
+
+# @generated expo-cli sync-2b81b286409207a5da26e14c78851eb30d8ccbdb
+expo-env.d.ts
+# @end expo-cli

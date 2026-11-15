@@ -1,0 +1,18 @@
+{
+  "name": "remote-pc-relay",
+  "version": "1.0.0",
+  "description": "Self-hosted WebSocket relay: accounts, device pairing/registry, and WebRTC signaling for the remote PC controller.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/smoke.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

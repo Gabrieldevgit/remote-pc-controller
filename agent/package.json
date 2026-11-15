@@ -1,0 +1,32 @@
+{
+  "name": "remote-pc-agent",
+  "version": "1.0.0",
+  "description": "Windows agent for the Remote PC Controller: registers with the relay, appears as a device, and serves remote-desktop sessions (screen streaming + input injection + clipboard).",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js run",
+    "desktop": "electron desktop/main.cjs",
+    "pair": "node src/index.js pair",
+    "status": "node src/index.js status",
+    "test": "node test/protocol-test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "clipboardy": "^4.0.0",
+    "jpeg-js": "^0.4.4",
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "@nut-tree/nut-js": "^4.0.0",
+    "@roamhq/wrtc": "^0.10.0",
+    "werift": "^0.20.0"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0"
+  }
+}

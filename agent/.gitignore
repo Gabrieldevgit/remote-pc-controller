@@ -1,0 +1,8 @@
+# Secrets & runtime state — never commit
+config.json
+data/
+screenshots/
+npm-install.log
+
+node_modules/
+*.log

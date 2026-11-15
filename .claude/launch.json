@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "metro",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "remote-pc-controller-main-src",
+        "run",
+        "start",
+        "--",
+        "--port",
+        "8081",
+        "--reset-cache"
+      ],
+      "port": 8081
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Agent runtime state & secrets (device login, captures)
+agent/config.json
+agent/data/
+agent/screenshots/
+relay/data/
+
+# Logs
+*.log
+npm-install.log
+
+# Supabase CLI temp state
+supabase/.temp/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
