@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Remote PC</title>
+<meta name="description" content="What Remote PC stores, what it never stores, and who processes it.">
+<link rel="icon" href="/img/favicon.png">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Remote PC home"><img src="/img/icon-192.png" alt="" width="36" height="36">Remote PC</a>
+    <nav class="nav" aria-label="Main"><a href="/#download" class="btn primary small">Download</a></nav>
+  </div>
+</header>
+
+<main class="legal">
+  <div class="wrap">
+    <h1>Privacy</h1>
+    <p class="updated">Last updated: 15 November 2026</p>
+    <p>Remote PC (the Android app “Remote PC” and the Windows app “Remote PC Host”) lets you reach your own devices and help other people. This page explains, in plain words, what is stored and what is not.</p>
+
+    <h2>What never leaves your devices</h2>
+    <ul>
+      <li><b>Your screen, sound, mouse and keyboard input, clipboard and transferred files</b> go directly between your devices over an encrypted WebRTC connection (DTLS-SRTP). They are not stored on, or passed through, our servers.</li>
+      <li><b>Your Remote Access PIN</b> is stored only on your PC, as a salted scrypt hash, and checked there.</li>
+    </ul>
+
+    <h2>What is stored</h2>
+    <ul>
+      <li><b>Your account:</b> your email address and password. The password is stored only as a hash by our authentication provider.</li>
+      <li><b>Your PCs and phones:</b> the name you give them, the phone model and Android version, the app version, whether they are online and when they were last seen.</li>
+      <li><b>Connection history:</b> for each session, which account connected, which device, the phone or PC name, and when it started and ended. Finished sessions are deleted after 30 days.</li>
+      <li><b>Remote Support:</b> the helper's email address and the session times. The temporary identity created for the shared PC is deleted after 2 hours; the session record after 30 days.</li>
+      <li><b>Quick actions:</b> the command you sent (for example “lock”) and its result. Finished commands are deleted after 30 days.</li>
+      <li><b>Screenshots and camera photos or clips</b> you take with quick actions are stored privately in your account and can only be opened by you, through links that expire after 10 minutes. They stay until you delete them.</li>
+      <li><b>On your PC</b>, Remote PC Host keeps a list of Remote Support sessions and, if you sign in, your sign-in session (encrypted with Windows).</li>
+    </ul>
+
+    <h2>Who processes the data</h2>
+    <ul>
+      <li><b>Supabase</b> hosts the database, sign-in, real-time connection setup and private file storage.</li>
+      <li><b>Google STUN servers</b> help the two devices find each other when a connection starts; they see the devices' IP addresses, nothing else.</li>
+      <li><b>GitHub</b> hosts the downloads and the source code; <b>Vercel</b> hosts this website.</li>
+    </ul>
+    <p>There are no ads, no trackers and no analytics in the apps or on this website. Data is never sold.</p>
+
+    <h2>Permissions on Android</h2>
+    <ul>
+      <li><b>Screen sharing</b> is used only when you allow a PC to control the phone, and Android asks you each time.</li>
+      <li><b>Accessibility service</b> (optional) performs the taps, swipes, typing and Back/Home/Recents that your PC sends during a session you allowed. It is not used to read or collect what is on the screen.</li>
+      <li><b>“Record audio”</b> is Android's name for capturing the sound apps play, used only when you turn on phone sound. The microphone is never used.</li>
+      <li><b>Notifications</b> tell you when a PC asks to connect and while the phone is shared.</li>
+    </ul>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>Remove a PC or phone in the app at any time; its sign-in is revoked immediately.</li>
+      <li>Delete screenshots and camera media from the app.</li>
+      <li>To delete your account and all its data, open an issue on <a href="https://github.com/Gabrieldevgit/remote-pc-controller/issues">GitHub</a> asking for deletion (don't post personal details there; we will contact you through your account email).</li>
+    </ul>
+
+    <h2>Changes</h2>
+    <p>If this page changes, the date at the top changes too. Significant changes will be announced in the apps.</p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="grow">© 2026 Remote PC</span>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a href="https://github.com/Gabrieldevgit/remote-pc-controller">GitHub</a>
+  </div>
+</footer>
+</body>
+</html>
