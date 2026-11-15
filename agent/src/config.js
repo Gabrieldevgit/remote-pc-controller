@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG_PATH = path.join(AGENT_ROOT, 'config.json');
 export const SCREENSHOT_DIR = process.env.AGENT_SCREENSHOT_DIR
   ? path.resolve(process.env.AGENT_SCREENSHOT_DIR)
   : path.join(AGENT_ROOT, 'screenshots');
-export const AGENT_VERSION = '1.1.0';
+export const AGENT_VERSION = '1.1.1';
 export const AGENT_OS = 'windows';
 
 // Hosted backend (supabase/). The publishable key is designed to be public:

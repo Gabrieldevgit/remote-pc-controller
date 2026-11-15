@@ -15,10 +15,27 @@ import path from 'node:path';
 const SCRIPT_DIR = path.join(os.tmpdir(), 'remote-pc-agent');
 let counter = 0;
 
+// powershell.exe is not DPI-aware: with display scaling (125 %, 150 % …)
+// Windows hands it *scaled* coordinates, so a 1920×1080 screen at 125 %
+// looks like 1536×864 and CopyFromScreen grabs only the top-left part of
+// the desktop. Every script therefore first switches the process to
+// per-monitor DPI awareness (Windows 10 1703+), falling back to system DPI
+// awareness, so screen sizes, captures, the cursor and the curtain all use
+// real pixels. Must run before any window or System.Windows.Forms call.
+export const DPI_PREAMBLE = String.raw`
+try {
+  Add-Type -Namespace RemotePcDpi -Name Native -ErrorAction Stop -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(System.IntPtr value);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+'@
+  if (-not [RemotePcDpi.Native]::SetProcessDpiAwarenessContext([System.IntPtr](-4))) { [void][RemotePcDpi.Native]::SetProcessDPIAware() }
+} catch { }
+`;
+
 function writeScript(script) {
   fs.mkdirSync(SCRIPT_DIR, { recursive: true });
   const file = path.join(SCRIPT_DIR, `agent-${process.pid}-${Date.now()}-${counter++}.ps1`);
-  fs.writeFileSync(file, script, { encoding: 'utf8' });
+  fs.writeFileSync(file, DPI_PREAMBLE + script, { encoding: 'utf8' });
   return file;
 }
 
