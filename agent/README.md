@@ -1,26 +1,26 @@
 # Remote PC Controller — Windows Agent
 
 The agent turns a Windows PC into a controllable device for the Remote PC
-Controller system. It connects to the relay over WebSocket, appears in the
-phone/desktop app's device list, and serves remote-desktop sessions: live
-screen streaming, mouse/keyboard injection, clipboard sync, and system
-actions (lock, shutdown, volume, screenshots, process management).
-
-The relay protocol this agent implements is defined in `../relay/PROTOCOL.md`
-— that file is the binding contract.
+Controller app. It signs in to **Supabase** with its own device login, shows
+up online in the app, and serves remote-desktop sessions: live screen and
+sound, a reported pointer for the phone's big cursor, mouse/keyboard
+injection, clipboard sync, file transfer, curtain mode and quick actions
+(lock, shutdown, volume, screenshots, processes). It can also run as a
+temporary **Remote Support** host with a one-time code.
 
 ```
-┌──────────┐  WebSocket (device token)  ┌─────────┐  WebSocket   ┌──────────────┐
-│  Agent   │◄──────────────────────────►│  Relay  │◄────────────►│  App client  │
-│ (this)   │  heartbeat / pairing /     │         │  signaling   │ (React Native)│
-└────┬─────┘  session signaling          └─────────┘              └──────┬───────┘
-     │                                                            │
-     │  WebRTC (video track + data channel) — direct, via STUN    │
-     └────────────────────────────────────────────────────────────┘
+┌──────────┐  device login · heartbeat RPC ┌──────────┐  Auth · Realtime   ┌──────────────┐
+│  Agent   │◄─────────────────────────────►│ Supabase │◄──────────────────►│  App client  │
+│ (this)   │  session rows · signaling     │          │  signaling         │(React Native)│
+└────┬─────┘                               └──────────┘                    └──────┬───────┘
+     │                                                                           │
+     │  WebRTC (video + audio tracks, data channels) — peer-to-peer, DTLS/SRTP   │
+     └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-Signaling (offer/answer/ICE) is relayed through the relay server; the actual
-screen video and control traffic flow peer-to-peer over WebRTC.
+Supabase only carries signaling and metadata; screen, sound, input and files
+flow peer-to-peer. The legacy relay (`../relay/PROTOCOL.md`) is still
+supported with `"backend": "relay"` for tests and offline LAN setups.
 
 ---
 
@@ -73,87 +73,80 @@ desktop host app (Electron):
 npm run desktop
 ```
 
-It mirrors the mobile app's look (ivory / charcoal / copper, light and dark):
-**This device** shows whether remote access is on and turns it on/off,
-**Set up remote access** takes the 6-digit access code from the app, and
-**Relay server** saves the relay address. It runs the agent CLI as a child
-process (`ELECTRON_RUN_AS_NODE`) and never displays or exports the device
-token.
+It mirrors the mobile app's look (ivory / charcoal / copper, light and dark)
+and has two parts, like Chrome Remote Desktop:
 
-### Relay address
+- **Remote Access** — pair this PC with your account (6-digit code from the
+  app + a PIN), turn access on/off, change the PIN. A PC still paired with
+  the retired relay shows **Update needed**: pair it again.
+- **Remote Support** — *Generate code* shows a 12-digit one-time code
+  (5 minutes, refreshed automatically). When a helper enters it, a dialog asks
+  **Allow / Decline**; while they are connected an always-on-top bar shows
+  *"Your screen is shared — Stop sharing"*. No account is needed on this PC.
 
-```bat
-node src\index.js relay ws://192.168.1.20:8080   :: save it in config.json
-node src\index.js relay                          :: print the current one
-```
-
-The `RELAY_URL` environment variable still overrides the saved value.
+It runs the agent CLI as a child process (`ELECTRON_RUN_AS_NODE`) and never
+displays or exports the device login.
 
 ## Pairing (first run)
 
-1. Start the relay and open the app (or use the relay's API directly).
-2. In the app, choose **Add device** — a **6-digit pairing code** appears and
-   is valid for a short time.
-3. On the PC, run:
+1. In the app: Computers → **Get a code** — a 6-digit code appears (valid
+   5 minutes).
+2. On the PC, in Remote PC Host or on the command line:
 
    ```bat
    cd agent
    node src\index.js pair
    ```
 
-4. Answer the prompts:
+3. Answer the prompts (code, device name, PIN). The PIN (6–12 digits) is
+   asked every time someone connects; it is stored as a scrypt hash in
+   `config.json` and checked on this PC only.
 
-   ```
-   Enter the 6-digit pairing code shown in the app: 482913
-   Device name [DESKTOP-ABC123]: Living Room PC
-   ```
+   Scripted form: `node src\index.js pair --code 482913 --name "Living Room PC" --pin 246810`
+   (`--no-pin` skips the PIN, `--no-run` exits after pairing).
 
-   Pressing Enter accepts the default device name (the machine's hostname).
+`pair` always pairs with Supabase and rewrites `config.json`
+(`backend: "supabase"`, the device login, the PIN hash). A config left from
+the old relay (it has a `token` and no `backend`) is refused by `run` with
+*"This PC is paired with the retired relay server… Pair it again"*.
+`--backend relay` still pairs against a self-hosted relay for tests.
 
-   Scripted form (no prompts): `node src\index.js pair --code 482913 --name "Living Room PC"`.
-   Add `--no-run` to exit after pairing instead of serving sessions.
-
-5. On success the agent prints:
-
-   ```
-   paired successfully as "Living Room PC" (device <id>)
-   device token saved to agent/config.json — keep it secret, never commit it
-   connected and serving sessions — press Ctrl+C to stop
-   ```
-
-The device token is written to `agent/config.json`. That file **is** the
-machine's identity — anyone holding it can control this PC. It is excluded
-from git via `agent/.gitignore`. To move the agent to a different account,
-delete `config.json` and pair again. Re-pairing also invalidates the old
-token on the relay.
+`agent/config.json` **is** the machine's identity — anyone holding it can
+sign in as this PC. It is git-ignored. Removing the PC in the app revokes its
+login immediately.
 
 ## Running
 
 ```bat
-node src\index.js run      # foreground (default command)
-node src\index.js status   # identity, relay URL, detected capabilities
-```
-
-`status` output looks like:
-
-```
-Remote PC Controller agent — status
-  relay URL:   ws://127.0.0.1:8080/ws
-  device name: Living Room PC
-  device id:   dev_...
-  token:       9f2a…c1 (48 chars, kept in config.json)
-  video:       native
-  input:       powershell-sendinput
-  clipboard:   clipboardy
+node src\index.js run           :: serve sessions (default command)
+node src\index.js status        :: backend, device id, capabilities
+node src\index.js pin           :: set or change the PIN
+node src\index.js pin --clear   :: remove the PIN (not recommended)
+node src\index.js support       :: one-off Remote Support code in the terminal
+node src\index.js support --json   :: JSON-lines protocol used by Remote PC Host
 ```
 
 Once running, the agent:
 
-- authenticates with its device token (`auth.agent`),
-- sends a heartbeat every 15 s so the relay marks it **online**,
-- accepts `session.request` and answers WebRTC offers,
-- serves the data-channel control protocol until the session ends,
-- reconnects automatically if the relay connection drops.
+- signs in with its device login and heart-beats every 20 s (online status),
+- answers session requests and WebRTC offers on private Realtime channels,
+- keeps each Remote Access session **locked** until the right PIN arrives
+  (5 tries),
+- serves the data-channel protocol: video, sound, pointer reports, input,
+  clipboard, files, curtain (see [`../docs/DATA_CHANNEL.md`](../docs/DATA_CHANNEL.md)),
+- runs quick actions and uploads screenshots to Storage,
+- reconnects automatically.
+
+### Session features
+
+| Feature | How it works | Notes |
+|---|---|---|
+| Pointer reports | `src/cursor.js` — PowerShell `GetCursorInfo` worker, ≤ 30 reports/s | The phone draws a big pointer from these; the capture has no cursor |
+| PIN | `src/pin.js` — scrypt hash + salt in `config.json` | Never sent to Supabase |
+| Sound | `src/audio.js` — WASAPI loopback (C# in a PowerShell worker), 48 kHz stereo | Native video mode only; off until the phone turns it on |
+| Curtain | `src/curtain.js` — black top-most window per monitor with `WDA_EXCLUDEFROMCAPTURE` | Windows 10 2004+; local keyboard/mouse are **not** blocked |
+| Files | `src/files.js` — one `file:<id>` data channel per transfer, 1 GiB cap | Received files go to `%USERPROFILE%\Downloads\Remote PC\` (`AGENT_DOWNLOADS_DIR` overrides); "Get a file" opens the Windows Open dialog on this PC |
+| Remote Support | temporary host login from the `support-host` Edge Function, `support_sessions` rows | Needs the person at the PC to click Allow; *View only* drops all input |
 
 ### Run in the background / at login
 
@@ -168,14 +161,9 @@ Three helpers live in this folder:
   schtasks /create /tn "RemotePCAgent" /tr "wscript.exe \"C:\path\to\agent\agent.vbs\"" /sc onlogon /rl limited
   ```
 
-  Or via the GUI: Task Scheduler → Create Task → Trigger "At log on" →
-  Action: start `wscript.exe` with argument `C:\path\to\agent\agent.vbs`.
   "Run only when user is logged on" is correct — the agent injects input into
   the interactive desktop, so it must run in the logged-in session, not as a
   headless service.
-
-To stop a hidden agent: `taskkill /F /IM node.exe` (kills all Node processes)
-or find the specific PID with `tasklist /FI "IMAGENAME eq node.exe"`.
 
 ## Configuration
 
@@ -183,26 +171,23 @@ or find the specific PID with `tasklist /FI "IMAGENAME eq node.exe"`.
 
 ```json
 {
-  "relayUrl": "ws://127.0.0.1:8080/ws",
-  "deviceId": "dev_…",
-  "token": "…secret…",
+  "backend": "supabase",
+  "deviceId": "…",
   "name": "Living Room PC",
-  "version": "1.0.0",
-  "settings": {
-    "quality": "high",
-    "heartbeatIntervalMs": 15000,
-    "clipboardSync": true
-  }
+  "deviceEmail": "device-…@devices.remote-pc.invalid",
+  "devicePassword": "…secret…",
+  "pinHash": "…", "pinSalt": "…",
+  "settings": { "quality": "high", "clipboardSync": true }
 }
 ```
 
-- `relayUrl` — relay WebSocket endpoint. The path defaults to `/ws` if
-  omitted. The `RELAY_URL` environment variable overrides it (useful for
-  testing: `set RELAY_URL=ws://127.0.0.1:41234/ws`).
 - `settings.quality` — default streaming quality: `high`, `medium`, `low` or
-  `adaptive`. The client can change this per session at runtime.
-- `AGENT_CONFIG_PATH` env var overrides the config file location (used by the
-  test suite so it never touches your real credentials).
+  `adaptive`. The client can change this per session.
+- `AGENT_CONFIG_PATH` overrides the config file location (the tests use it so
+  they never touch your real identity).
+- Legacy relay mode: `"backend": "relay"` with `relayUrl` / `token`;
+  `node src\index.js relay ws://host:8080` saves the address and `RELAY_URL`
+  overrides it.
 
 ## Capability tiers
 
@@ -215,6 +200,8 @@ implementation is unavailable the agent falls back and logs
 | Video | `@roamhq/wrtc` video track fed by software capture (`native` mode) | JPEG frames over the data channel via `werift` (`jpeg` mode) | Sessions rejected with `capture_unavailable` (`none` mode) |
 | Input | `@nut-tree/nut-js` | PowerShell `SendInput` worker (`powershell-sendinput`) | Calls reject with a clear error |
 | Clipboard | `clipboardy` | `win-clipboard` | Clipboard sync disabled |
+| Sound | WASAPI loopback on a WebRTC audio track (native mode) | — | `audio.state.available: false` |
+| Curtain | `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` | — | `curtain.state.available: false` (older Windows) |
 
 ### Degraded (JPEG) mode explained
 
@@ -311,8 +298,13 @@ the normal WebRTC video track instead.
 
 ## Security notes
 
-- The device token in `config.json` is the full credential for this machine.
+- The device login in `config.json` is the full credential for this machine.
   `agent/.gitignore` excludes `config.json`, `screenshots/` and `data/`.
+  Removing the PC in the app deletes that login.
+- Remote Access sessions stay locked (no video, sound, input or files) until
+  the PIN is verified on this PC; 5 wrong tries end the session.
+- Remote Support needs the person at this PC to click **Allow**; *View only*
+  helpers cannot send input, read the clipboard or transfer files.
 - All inbound relay and data-channel messages are shape-validated before use;
   unknown types are logged and ignored; no dynamic code execution anywhere.
 - Input injection, power actions and process killing only happen on explicit
@@ -363,9 +355,11 @@ special privileges for SAS injection; the agent sends it best-effort.
 ```
 agent/
   src/
-    index.js        CLI entry (pair / run / status)
+    index.js        CLI entry (pair / run / status / pin / support / relay)
     runtime.js      wires config + backends + session manager together
-    relay-client.js reconnecting WebSocket client, auth, heartbeat, pairing
+    supabase-client.js  Supabase device / support-host client (presence,
+                    sessions, signaling, commands, pairing)
+    relay-client.js legacy relay WebSocket client
     session.js      session orchestration + data-channel control protocol
     webrtc.js       backend detection & adapters (native / jpeg / none)
     capture.js      PowerShell screen-capture worker (BGRA frames, PNG shots)
@@ -374,19 +368,26 @@ agent/
     system.js       power actions, volume, beep, screenshots, processes
     config.js       config.json load/save, relay URL normalization
     powershell.js   shared "write temp .ps1 + run with -File" helper
+    cursor.js       real pointer position / shape reports
+    pin.js          PIN hashing and checks (scrypt)
+    audio.js        WASAPI loopback sound capture
+    curtain.js      curtain-mode window hidden from the capture
+    files.js        peer-to-peer file transfer, Windows Open dialog
+  desktop/          Remote PC Host (Electron): main.cjs, preload.cjs,
+                    renderer.html, sharing-bar.html
   test/
-    protocol-test.js  end-to-end test against a spawned relay
+    protocol-test.js     end-to-end test against a spawned relay
+    session-gates-test.js  PIN lock / view-only / support gates (no network)
   start.bat / agent.vbs   launchers (visible / hidden)
-  config.json             created by `pair` — contains the device token
+  config.json             created by `pair` — the device login and PIN hash
   screenshots/            PNG screenshots requested during sessions
 ```
 
 ## Testing
 
-With the relay one directory up:
-
 ```bat
-node test\protocol-test.js
+npm run test:gates          :: session gates (PIN, view only, support)
+node test\protocol-test.js  :: legacy relay flow, with the relay one directory up
 ```
 
 The test spawns its own relay instance (`node ../relay/src/server.js`) on a

@@ -6,14 +6,16 @@ Windows agent talk to it directly; no relay server is needed.
 
 | Supabase feature | Used for |
 |---|---|
-| **Auth** | App accounts (email + password). Each paired PC gets its own restricted login (`device-<id>@devices.remote-pc.invalid`). |
-| **Database** | `devices`, `remote_sessions`, `device_commands` (public, RLS) and `private.pairing_codes` / `private.pairing_failures` (not exposed). |
-| **Realtime** | `postgres_changes` on the three public tables (live online status, session requests, command results) and private broadcast channels `session:<uuid>` for WebRTC offer / answer / ICE. |
+| **Auth** | App accounts (email + password). Each paired PC gets its own restricted login (`device-<id>@devices.remote-pc.invalid`); each Remote Support host gets a temporary one (2 h). |
+| **Database** | `devices`, `remote_sessions`, `device_commands`, `support_hosts`, `support_sessions` (public, RLS) and `private.pairing_codes` / `pairing_failures` / `support_codes` / `support_failures` / `support_host_creations` (not exposed). |
+| **Realtime** | `postgres_changes` on the public tables (online status, session requests, command results, support requests) and private broadcast channels `session:<uuid>` / `support:<uuid>` for WebRTC offer / answer / ICE. |
 | **Storage** | Private bucket `screenshots`, one folder per device (`<device_id>/<file>.png`). |
-| **Edge Functions** | `pair-device` — exchanges a 6-digit code for a device login. |
+| **Edge Functions** | `pair-device` — exchanges a 6-digit code for a device login. `support-host` — creates a temporary Remote Support host login (20 per IP per hour). |
+| **pg_cron** | `remote-pc-cleanup` (hourly, minute 17) — deletes expired support hosts and their logins, old codes / rate-limit rows, finished sessions and commands older than 30 days. |
 
-Screen video and input never pass through Supabase: they flow peer-to-peer
-over WebRTC (DTLS/SRTP).
+Screen, sound, input and files never pass through Supabase: they flow
+peer-to-peer over WebRTC (DTLS/SRTP). The Remote Access PIN is checked on the
+PC and is never stored here.
 
 ## Flows
 
@@ -31,6 +33,13 @@ over WebRTC (DTLS/SRTP).
 - **Quick actions** — app inserts `device_commands`; the agent marks it
   `running`, then `succeeded` / `failed` with `result`. Screenshots are
   uploaded to Storage and the row carries `result.storagePath`.
+- **Remote Support** — the PC (no account) calls `functions/v1/support-host`
+  for a temporary login, then `rpc('issue_support_code')` (12 digits,
+  5 min, single use). The helper calls `rpc('redeem_support_code', {code,
+  mode})` (`control` | `view`; 10 failures / 10 min per user), which burns
+  the code and inserts a `support_sessions` row. The person at the PC clicks
+  Allow (`state = approved`) or Decline (`rejected`); signaling then runs on
+  `support:<id>`, authorized by `private.can_use_support_topic()`.
 - **Removing a PC** — deleting the `devices` row also deletes its device
   login (trigger), so the agent is locked out immediately.
 
@@ -45,6 +54,10 @@ over WebRTC (DTLS/SRTP).
   agent can join, and only while the session is open.
 
 ## Auth settings to review (dashboard)
+
+- **Leaked password protection** is off (the security advisor flags it).
+  Turn it on under *Authentication → Sign In / Providers → Email → Prevent
+  use of leaked passwords*.
 
 - **Confirm email** is on by default: new accounts must click the emailed
   link before signing in (the app shows a "check your email" notice with a
@@ -61,10 +74,12 @@ over WebRTC (DTLS/SRTP).
 npx supabase link --project-ref hmhjlpxzuoyvxzqyfkqc
 npx supabase db push
 npx supabase functions deploy pair-device --no-verify-jwt
+npx supabase functions deploy support-host --no-verify-jwt
 ```
 
-`migrations/20261114235000_remote_pc_backend.sql` and
-`20261114235100_merge_session_update_policies.sql` are already applied to the
-project. `migrations/20261028023437_remote_controller_core.sql` is an older
+`migrations/20261114235000_remote_pc_backend.sql`,
+`20261114235100_merge_session_update_policies.sql` and
+`20261115010000_remote_support.sql` are already applied to the project, and
+both Edge Functions are deployed. `migrations/20261028023437_remote_controller_core.sql` is an older
 draft written for a different project; it was never applied here and
 conflicts with the current schema — delete it before using `db push`.
