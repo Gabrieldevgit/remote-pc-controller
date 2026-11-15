@@ -38,6 +38,7 @@ import IconButton from '../components/IconButton';
 import TextField from '../components/TextField';
 import Toast, {useToast, type ToastTone} from '../components/Toast';
 import AppIcon, {type AppIconName} from '../components/AppIcon';
+import {playClip, saveCameraClip} from '../lib/cameraClips';
 import {AppBar} from '../components/Header';
 import {DeviceBadge, Illustration} from '../components/Illustration';
 import type {RootStackParamList} from '../navigation/types';
@@ -53,6 +54,8 @@ type PCCommand =
   | 'lock'
   | 'beep'
   | 'screenshot'
+  | 'camera_photo'
+  | 'camera_record'
   | 'volume_down'
   | 'volume_up'
   | 'mute'
@@ -72,6 +75,8 @@ const COMMANDS: CommandSpec[] = [
   {type: 'lock', label: 'Lock', icon: 'lock'},
   {type: 'beep', label: 'Find me', icon: 'bell'},
   {type: 'screenshot', label: 'Screenshot', icon: 'image'},
+  {type: 'camera_photo', label: 'Camera photo', icon: 'camera'},
+  {type: 'camera_record', label: 'Record video', icon: 'video'},
   {type: 'volume_down', label: 'Vol –', icon: 'volume-down'},
   {type: 'volume_up', label: 'Vol +', icon: 'volume-up'},
   {type: 'mute', label: 'Mute', icon: 'volume-mute'},
@@ -614,19 +619,39 @@ export default function DevicesScreen() {
 
   const sendCommand = React.useCallback(
     (device: DeviceInfo, spec: CommandSpec) => {
-      const run = () => {
+      const run = (seconds = 10) => {
+        let params: Record<string, unknown> = {};
+        let timeoutMs: number | undefined;
         if (spec.type === 'screenshot') {
           notify(`Taking a screenshot of ${device.name}…`, 'neutral');
+          params = {maxWidth: 1600};
+        } else if (spec.type === 'camera_photo') {
+          notify(`Taking a photo with ${device.name}'s camera…`, 'neutral');
+          timeoutMs = 45_000;
+        } else if (spec.type === 'camera_record') {
+          notify(`Recording ${seconds} s with ${device.name}'s camera…`, 'neutral');
+          params = {seconds};
+          // Recording time + camera start-up + upload.
+          timeoutMs = seconds * 1000 + 75_000;
         }
-        return runDeviceCommand(
-          device.id,
-          spec.type,
-          spec.type === 'screenshot' ? {maxWidth: 1600} : {},
-        )
+        return runDeviceCommand(device.id, spec.type, params, timeoutMs)
           .then(async result => {
-            if (spec.type === 'screenshot' && typeof result.storagePath === 'string') {
-              const url = await screenshotUrl(result.storagePath);
-              setShot({deviceName: device.name, url, path: result.storagePath});
+            const storagePath = typeof result.storagePath === 'string' ? result.storagePath : null;
+            if ((spec.type === 'screenshot' || spec.type === 'camera_photo') && storagePath) {
+              const url = await screenshotUrl(storagePath);
+              setShot({deviceName: device.name, url, path: storagePath});
+            } else if (spec.type === 'camera_record' && storagePath) {
+              notify('Saving the video to your phone…', 'neutral');
+              const url = await screenshotUrl(storagePath);
+              const fileName = storagePath.split('/').pop() ?? 'camera.mp4';
+              const clip = await saveCameraClip(url, fileName);
+              notify(`Video saved to ${clip.location}`, 'success');
+              Alert.alert('Video saved', `${clip.location}
+
+A private copy also stays in your account until you delete the computer.`, [
+                {text: 'Close', style: 'cancel'},
+                {text: 'Play', onPress: () => void Promise.resolve(playClip(clip.localPath)).catch(() => notify('No video player was found', 'error'))},
+              ]);
             } else {
               notify(`${spec.label} sent to ${device.name}`, 'success');
             }
@@ -641,7 +666,18 @@ export default function DevicesScreen() {
             notify(message, 'error' as ToastTone);
           });
       };
-      if (spec.confirm) {
+      if (spec.type === 'camera_record') {
+        Alert.alert(
+          'Record video',
+          `${device.name}'s camera records a clip without sound. Its camera light turns on while recording.`,
+          [
+            // Android shows at most three buttons.
+            {text: 'Cancel', style: 'cancel'},
+            {text: '10 s', onPress: () => void run(10)},
+            {text: '30 s', onPress: () => void run(30)},
+          ],
+        );
+      } else if (spec.confirm) {
         Alert.alert(
           `${spec.label}?`,
           `${device.name} will ${spec.confirm} right away. Unsaved work on it may be lost.`,

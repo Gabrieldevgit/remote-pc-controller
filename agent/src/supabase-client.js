@@ -230,6 +230,7 @@ export class SupabaseAgentClient extends EventEmitter {
               kind: 'support',
               mode: row.mode === 'view' ? 'view' : 'control',
               helperEmail: str(row.helper_email, 320) ?? 'someone',
+              clientName: str(row.client_name, 80),
             }
             : { sessionId, deviceId: this.deviceId });
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -333,10 +334,15 @@ export class SupabaseAgentClient extends EventEmitter {
 
   async completeCommand({ commandId, ok, command, result, error }) {
     let finalResult = result ?? null;
-    // Screenshots go to Storage; the row only carries the object path.
-    if (ok && command === 'screenshot' && result?.path) {
+    // Screenshots and camera photos / clips go to Storage; the row only
+    // carries the object path (plus the camera name and clip length).
+    const MEDIA = { screenshot: 'image/png', camera_photo: 'image/jpeg', camera_record: 'video/mp4' };
+    if (ok && MEDIA[command] && result?.path) {
       try {
-        finalResult = { storagePath: await this.uploadScreenshot(result.path) };
+        const storagePath = await this.uploadScreenshot(result.path, MEDIA[command]);
+        finalResult = { storagePath };
+        if (result.camera) finalResult.camera = result.camera;
+        if (result.seconds) finalResult.seconds = result.seconds;
       } catch (err) {
         ok = false;
         error = `upload failed: ${err?.message ?? err}`;
@@ -352,11 +358,11 @@ export class SupabaseAgentClient extends EventEmitter {
     if (updateError) this.warn(`command ${commandId} result: ${updateError.message}`);
   }
 
-  async uploadScreenshot(filePath) {
+  async uploadScreenshot(filePath, contentType = 'image/png') {
     const bytes = fs.readFileSync(filePath);
     const objectPath = `${this.deviceId}/${path.basename(filePath)}`;
     const { error } = await this.supabase.storage.from('screenshots')
-      .upload(objectPath, bytes, { contentType: 'image/png', upsert: false });
+      .upload(objectPath, bytes, { contentType, upsert: false });
     if (error) throw new Error(error.message);
     try { fs.unlinkSync(filePath); } catch { /* keep local copy if locked */ }
     return objectPath;

@@ -15,6 +15,7 @@ import { AudioCapture } from './audio.js';
 import { Curtain, curtainSupported } from './curtain.js';
 import { pickFileOnPc, receiveUpload, sendFile } from './files.js';
 import { PIN_MAX_ATTEMPTS } from './pin.js';
+import { cameraPhoto, cameraRecord } from './camera.js';
 
 /** While a session waits for its PIN, only these messages are accepted. */
 const LOCKED_ALLOWED = new Set(['auth.pin', 'stats.ping']);
@@ -231,6 +232,7 @@ export class SessionManager {
       kind,
       mode,
       helperEmail: typeof payload.helperEmail === 'string' ? payload.helperEmail : null,
+      clientName: typeof payload.clientName === 'string' ? payload.clientName.slice(0, 80) : null,
       viewOnly: kind === 'support' && mode === 'view',
       // Personal access waits for the PIN when one is set on this PC.
       locked: kind === 'access' && this.security?.pinRequired?.() === true,
@@ -255,14 +257,14 @@ export class SessionManager {
     if (kind === 'support') {
       const helper = this.sessions.get(sessionId).helperEmail ?? 'someone';
       this.log(`support session ${sessionId}: ${helper} asks to ${mode === 'view' ? 'view' : 'control'} this screen`);
-      Promise.resolve(this.authorize ? this.authorize({ sessionId, helperEmail: helper, mode }) : false)
+      Promise.resolve(this.authorize ? this.authorize({ sessionId, helperEmail: helper, clientName: this.sessions.get(sessionId).clientName, mode }) : false)
         .catch(() => false)
         .then((allow) => {
           if (!this.sessions.has(sessionId)) return;
           if (allow) {
             this.log(`support session ${sessionId}: allowed`);
             this.sendSignal('session.accept', { sessionId });
-            this.emitEvent({ type: 'support-started', sessionId, helperEmail: helper, mode });
+            this.emitEvent({ type: 'support-started', sessionId, helperEmail: helper, clientName: this.sessions.get(sessionId)?.clientName ?? null, mode });
           } else {
             this.log(`support session ${sessionId}: declined`);
             this.sendSignal('session.reject', { sessionId, reason: 'rejected' });
@@ -943,6 +945,14 @@ export class SessionManager {
         const maxWidth = Number(params.maxWidth) || 0;
         const shot = await this.system.screenshot({ maxWidth });
         return { path: shot.path };
+      }
+      case 'camera_photo': {
+        const shot = await (this.system.cameraPhoto ?? cameraPhoto)();
+        return { path: shot.path, camera: shot.camera };
+      }
+      case 'camera_record': {
+        const clip = await (this.system.cameraRecord ?? cameraRecord)(params.seconds);
+        return { path: clip.path, camera: clip.camera, seconds: clip.seconds };
       }
       case 'process_list':
         return this.system.processList();

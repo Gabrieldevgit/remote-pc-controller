@@ -84,8 +84,45 @@ and has two parts, like Chrome Remote Desktop:
   **Allow / Decline**; while they are connected an always-on-top bar shows
   *"Your screen is shared — Stop sharing"*. No account is needed on this PC.
 
+- **Account & history** (optional) — sign in or create an account (the same
+  one as the phone app). While signed in, *Set up remote access* needs no
+  code, and **Connection history** lists who connected — account email and
+  phone model ("Google Pixel 7 · Android 16"), when and for how long — read
+  from the account; Remote Support sessions are recorded on this PC. The
+  account session is kept in `%APPDATA%\Remote PC Host\account.json`,
+  encrypted with Windows DPAPI; signing out never unpairs the PC.
+
 It runs the agent CLI as a child process (`ELECTRON_RUN_AS_NODE`) and never
 displays or exports the device login.
+
+### Building the `.exe`
+
+```bat
+npm install
+npm run dist
+```
+
+This produces, in `agent\dist\`:
+
+- `Remote-PC-Host-Setup-<version>.exe` — installer (per user, no admin
+  rights; choose the folder; Start-menu and desktop shortcuts).
+- `Remote-PC-Host-<version>-portable.exe` — single file, nothing installed.
+
+`npm run dist:dir` only builds the unpacked app in `dist\win-unpacked\`
+(faster, for testing). The build bundles Node, the agent and whichever
+optional modules are installed (`@roamhq/wrtc` for native video), so the
+target PC needs nothing else.
+
+Installed or portable, the app keeps its identity (`config.json`) and
+screenshots in `%APPDATA%\Remote PC Host\`, not next to the program. A PC
+paired from source (`agent\config.json`) must pair again in the `.exe`, or
+copy that file into `%APPDATA%\Remote PC Host\`. Only one copy of the host
+runs at a time; launching it again brings the window forward.
+
+The `.exe` is not code-signed, so Windows SmartScreen shows *"Windows
+protected your PC"* on first launch (**More info → Run anyway**). Signing
+needs a code-signing certificate (`win.signtoolOptions` / `CSC_LINK` in
+electron-builder).
 
 ## Pairing (first run)
 
@@ -147,6 +184,7 @@ Once running, the agent:
 | Curtain | `src/curtain.js` — black top-most window per monitor with `WDA_EXCLUDEFROMCAPTURE` | Windows 10 2004+; local keyboard/mouse are **not** blocked |
 | Files | `src/files.js` — one `file:<id>` data channel per transfer, 1 GiB cap | Received files go to `%USERPROFILE%\Downloads\Remote PC\` (`AGENT_DOWNLOADS_DIR` overrides); "Get a file" opens the Windows Open dialog on this PC |
 | Remote Support | temporary host login from the `support-host` Edge Function, `support_sessions` rows | Needs the person at the PC to click Allow; *View only* drops all input |
+| Camera | `src/camera.js` — `Windows.Media.Capture` from PowerShell: JPEG photo or 720p MP4 clip (1–30 s, no sound) | Quick actions `camera_photo` / `camera_record`, owner only; uploaded to Storage. Windows must allow *Let desktop apps access your camera*; the camera light is on while it runs |
 
 ### Run in the background / at login
 

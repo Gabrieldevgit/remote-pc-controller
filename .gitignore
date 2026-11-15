@@ -20,3 +20,6 @@ supabase/.temp/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Packaged host app (npm run dist)
+agent/dist/

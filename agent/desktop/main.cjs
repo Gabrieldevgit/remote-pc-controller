@@ -8,16 +8,44 @@
 // Sections: Remote Access (pair, PIN, on/off) and Remote Support (share this
 // screen with a one-time code; every helper must be allowed here).
 
-const {app, BrowserWindow, ipcMain, screen, shell} = require('electron');
+const {app, BrowserWindow, ipcMain, safeStorage, screen, shell} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {pathToFileURL} = require('node:url');
+const {createAccount, createSupportLog} = require('./account.cjs');
 
 const AGENT_ROOT = path.resolve(__dirname, '..');
+// From source the identity lives in agent/config.json. In the installed app
+// the program folder is not writable, so it lives in
+// %APPDATA%\Remote PC Host\ (Electron's userData folder) instead.
+// REMOTE_PC_HOST_DATA gives a test copy its own folder (and its own
+// single-instance lock) next to an installed host.
+app.setPath('userData', process.env.REMOTE_PC_HOST_DATA
+  ? path.resolve(process.env.REMOTE_PC_HOST_DATA)
+  : path.join(app.getPath('appData'), 'Remote PC Host'));
+const DATA_DIR = app.isPackaged ? app.getPath('userData') : AGENT_ROOT;
 const CONFIG_PATH = process.env.AGENT_CONFIG_PATH
   ? path.resolve(process.env.AGENT_CONFIG_PATH)
-  : path.join(AGENT_ROOT, 'config.json');
+  : path.join(DATA_DIR, 'config.json');
+const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots');
+// The account session and Remote Support history always live in the
+// per-user app data folder (also when running from source).
+const ACCOUNT_DIR = app.getPath('userData');
+const supportLog = createSupportLog(path.join(ACCOUNT_DIR, 'support-history.json'));
+let accountPromise;
+
+/** Lazily create the account client (Supabase settings come from src/config.js). */
+function account() {
+  accountPromise ??= import(pathToFileURL(path.join(AGENT_ROOT, 'src', 'config.js')).href).then(cfg => createAccount({
+    file: path.join(ACCOUNT_DIR, 'account.json'),
+    url: process.env.SUPABASE_URL || cfg.SUPABASE_URL,
+    key: process.env.SUPABASE_KEY || cfg.SUPABASE_PUBLISHABLE_KEY,
+    safeStorage,
+  }));
+  return accountPromise;
+}
 const PIN_RE = /^\d{6,12}$/;
 
 let windowRef;
@@ -32,7 +60,13 @@ function runCli(args, onOutput, {stdin = false, env = {}} = {}) {
     cwd: AGENT_ROOT,
     windowsHide: true,
     stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    env: {...process.env, ...env, ELECTRON_RUN_AS_NODE: '1'},
+    env: {
+      ...process.env,
+      AGENT_CONFIG_PATH: CONFIG_PATH,
+      AGENT_SCREENSHOT_DIR: SCREENSHOT_DIR,
+      ...env,
+      ELECTRON_RUN_AS_NODE: '1',
+    },
   });
   if (onOutput) {
     const forward = data => onOutput(data.toString());
@@ -194,14 +228,17 @@ function startSupport() {
       } else if (event.event === 'started') {
         windowRef?.flashFrame(false);
         showSharingBar(event.helperEmail, event.mode);
+        try { supportLog.started(event); } catch { /* history is best effort */ }
       } else if (event.event === 'ended') {
         closeSharingBar();
+        try { supportLog.ended(event.sessionId); } catch { /* best effort */ }
       }
     }
   });
   supportProcess.stderr.on('data', chunk => send('agent:log', chunk.toString()));
   supportProcess.on('exit', () => {
     supportProcess = undefined;
+    try { supportLog.ended(null); } catch { /* best effort */ }
     closeSharingBar();
     send('support:event', {event: 'stopped'});
   });
@@ -210,7 +247,22 @@ function startSupport() {
 
 // ---- app lifecycle + IPC --------------------------------------------------------
 
+// One host per PC: a second launch focuses the existing window instead of
+// starting a second agent.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!windowRef || windowRef.isDestroyed()) return;
+    if (windowRef.isMinimized()) windowRef.restore();
+    windowRef.show();
+    windowRef.focus();
+  });
+}
+
 app.whenReady().then(() => {
+  if (!primaryInstance) return;
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -246,7 +298,20 @@ ipcMain.handle('agent:relay', (_event, value) => new Promise(resolve => {
     : {ok: false, error: output.trim() || 'Could not save the relay address.'}));
 }));
 
-ipcMain.handle('agent:pair', (_event, request) => new Promise(resolve => {
+ipcMain.handle('agent:pair', async (_event, request) => {
+  // Signed in on this PC: no code to type — ask Supabase for one.
+  if (request?.useAccount) {
+    try {
+      const code = await (await account()).pairingCode();
+      return pairWithCode({...request, code});
+    } catch (err) {
+      return {ok: false, error: err?.message ?? 'Could not get a pairing code.'};
+    }
+  }
+  return pairWithCode(request);
+});
+
+const pairWithCode = request => new Promise(resolve => {
   if (pairingProcess) {
     resolve({ok: false, error: 'Pairing is already in progress.'});
     return;
@@ -284,7 +349,7 @@ ipcMain.handle('agent:pair', (_event, request) => new Promise(resolve => {
       if (wasRunning) startHost();
     }
   });
-}));
+});
 
 ipcMain.handle('agent:set-pin', (_event, value) => new Promise(resolve => {
   const pin = String(value ?? '');
@@ -316,4 +381,25 @@ app.on('before-quit', () => {
   stop(agentProcess);
   stopSupport();
   if (supportProcess) stop(supportProcess);
+});
+
+// ---- account (optional sign-in on this PC) --------------------------------------
+
+ipcMain.handle('account:state', async () => {
+  try { return await (await account()).state(); } catch { return {signedIn: false}; }
+});
+ipcMain.handle('account:sign-in', async (_event, request) =>
+  (await account()).signIn(request?.email, request?.password));
+ipcMain.handle('account:sign-up', async (_event, request) =>
+  (await account()).signUp(request?.email, request?.password));
+ipcMain.handle('account:sign-out', async () => (await account()).signOut());
+ipcMain.handle('account:history', async () => {
+  const support = supportLog.list();
+  const state = await (await account()).state().catch(() => ({signedIn: false}));
+  if (!state.signedIn) return {ok: true, signedIn: false, owned: false, sessions: support};
+  const remote = await (await account()).history(readIdentity().deviceId);
+  if (!remote.ok) return {...remote, signedIn: true, sessions: support};
+  const sessions = [...remote.sessions, ...support]
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+  return {ok: true, signedIn: true, owned: remote.owned, reason: remote.reason, sessions};
 });

@@ -1,7 +1,7 @@
 {
   "name": "remote-pc-agent",
-  "version": "1.0.0",
-  "description": "Windows agent for the Remote PC Controller: registers with the relay, appears as a device, and serves remote-desktop sessions (screen streaming + input injection + clipboard).",
+  "version": "1.1.0",
+  "description": "Remote PC Host and Windows agent for Remote PC Controller: pairs the PC with Supabase and serves remote-desktop sessions (screen, sound, input, clipboard, files, Remote Support).",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,7 +16,9 @@
     "test": "node test/protocol-test.js",
     "test:gates": "node test/session-gates-test.js",
     "pin": "node src/index.js pin",
-    "support": "node src/index.js support"
+    "support": "node src/index.js support",
+    "dist": "electron-builder --win --x64",
+    "dist:dir": "electron-builder --win --x64 --dir"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
@@ -30,6 +32,50 @@
     "werift": "^0.20.0"
   },
   "devDependencies": {
-    "electron": "^45.1.0"
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Remote PC Controller",
+  "build": {
+    "appId": "com.remotepc.host",
+    "productName": "Remote PC Host",
+    "copyright": "Remote PC Controller",
+    "asar": false,
+    "npmRebuild": false,
+    "extraMetadata": {
+      "main": "desktop/main.cjs"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**",
+      "src/**",
+      "package.json",
+      "node_modules/**",
+      "!config.json",
+      "!screenshots/**",
+      "!data/**",
+      "!test/**",
+      "!dist/**",
+      "!*.log"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Remote PC Host",
+      "artifactName": "Remote-PC-Host-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Remote-PC-Host-${version}-portable.${ext}"
+    }
   }
 }

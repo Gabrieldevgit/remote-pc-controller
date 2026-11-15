@@ -9,6 +9,7 @@
  *   screenshots      private Storage bucket, "<device_id>/<file>.png"
  */
 import {supabase} from './supabase';
+import {clientName} from './clientName';
 
 /** A device is online when its agent heart-beat within this window. */
 export const ONLINE_WINDOW_MS = 60_000;
@@ -159,7 +160,9 @@ export type DeviceCommandName =
   | 'screenshot'
   | 'process_list'
   | 'process_kill'
-  | 'sysinfo';
+  | 'sysinfo'
+  | 'camera_photo'
+  | 'camera_record';
 
 interface CommandRow {
   id: string;
@@ -178,6 +181,7 @@ export async function runDeviceCommand(
   deviceId: string,
   command: DeviceCommandName,
   params: Record<string, unknown> = {},
+  timeoutMs: number = COMMAND_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
   const {data, error} = await supabase
     .from('device_commands')
@@ -229,7 +233,7 @@ export async function runDeviceCommand(
         .single();
       finish(row as CommandRow | null);
     }, 3000);
-    const timer = setTimeout(() => finish(null, true), COMMAND_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(null, true), timeoutMs);
   });
 }
 
@@ -262,7 +266,11 @@ export async function redeemSupportCode(
   code: string,
   mode: 'control' | 'view',
 ): Promise<{sessionId: string; hostName: string}> {
-  const {data, error} = await supabase.rpc('redeem_support_code', {p_code: code, p_mode: mode});
+  const {data, error} = await supabase.rpc('redeem_support_code', {
+    p_code: code,
+    p_mode: mode,
+    p_client: clientName(),
+  });
   if (error) {
     throw toBackendError(error);
   }

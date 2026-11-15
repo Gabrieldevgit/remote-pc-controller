@@ -61,7 +61,11 @@ Account → **Create account** → confirm the email → sign in.
 cd agent
 npm install
 npm run desktop               # Remote PC Host app: pairing, on/off
+npm run dist                  # build agent\dist\Remote-PC-Host-Setup-<version>.exe (+ portable .exe)
 ```
+
+The `.exe` needs nothing else on the target PC; see
+[`agent/README.md`](agent/README.md#building-the-exe).
 
 In the app: Computers → **Get a code** → type the 6 digits into Remote PC
 Host, choose a **PIN** (6–12 digits) → **Pair**. The computer turns online;
@@ -108,6 +112,8 @@ Compared with Chrome Remote Desktop:
 | Curtain mode | ✅ | Black screen on the PC that the capture ignores (Windows 10 2004+); local keyboard/mouse are not blocked |
 | Multiple connection modes | ✅ | Remote Access (own PCs) and Remote Support (code) |
 | Quick actions without a session | ✅ | lock, shutdown, restart, volume, find-me, screenshot, processes, sysinfo |
+| PC camera | ✅ | Owner-only quick actions: **Camera photo** and **Record video** (10 or 30 s, no sound) from the PC's webcam; photos open in the viewer, clips are saved to the phone's Downloads/Remote PC |
+| Account on the PC & connection history | ✅ | Optional sign-in in Remote PC Host: set up remote access without a code, and see which account and which phone connected, when and for how long |
 | Cross-platform client | 🟡 | Android tested; iOS builds need a Mac; web client is planned |
 | Organisations, admin support, unattended access, policies | ⏳ | Roadmap |
 

@@ -9,8 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 export const AGENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_CONFIG_PATH = path.join(AGENT_ROOT, 'config.json');
-export const SCREENSHOT_DIR = path.join(AGENT_ROOT, 'screenshots');
-export const AGENT_VERSION = '1.0.0';
+// The installed host app points this at %APPDATA%\Remote PC Host\screenshots.
+export const SCREENSHOT_DIR = process.env.AGENT_SCREENSHOT_DIR
+  ? path.resolve(process.env.AGENT_SCREENSHOT_DIR)
+  : path.join(AGENT_ROOT, 'screenshots');
+export const AGENT_VERSION = '1.1.0';
 export const AGENT_OS = 'windows';
 
 // Hosted backend (supabase/). The publishable key is designed to be public:

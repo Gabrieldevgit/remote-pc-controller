@@ -27,6 +27,7 @@ import {
 import type {RealtimeChannel} from '@supabase/supabase-js';
 
 import {supabase} from './supabase';
+import {clientName} from './clientName';
 import {BackendError, toBackendError} from './backend';
 import {
   DATA_CHANNEL_LABEL,
@@ -191,7 +192,7 @@ export class SessionClient {
 
     const {data, error} = await supabase
       .from('remote_sessions')
-      .insert({device_id: deviceId})
+      .insert({device_id: deviceId, client_name: clientName()})
       .select('id,state')
       .single();
     if (error || !data) {

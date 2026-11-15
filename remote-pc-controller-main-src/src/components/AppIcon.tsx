@@ -5,6 +5,7 @@ export type AppIconName =
   | 'add'
   | 'arrow-back'
   | 'bell'
+  | 'camera'
   | 'chevron-down'
   | 'chevron-right'
   | 'chevron-up'
@@ -38,6 +39,7 @@ export type AppIconName =
   | 'stats'
   | 'touch'
   | 'tune'
+  | 'video'
   | 'volume-down'
   | 'volume-mute'
   | 'volume-up'
@@ -76,6 +78,7 @@ export default function AppIcon({name, size = 20, color}: AppIconProps) {
       case 'edit': return <><Path {...c} d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10v4Z" /><Path {...c} d="m13.5 6.5 4 4" /></>;
       case 'fullscreen': return <Path {...c} d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />;
       case 'fullscreen-exit': return <Path {...c} d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />;
+      case 'camera': return <><Path {...c} d="M4 8.5a2 2 0 0 1 2-2h2l1.5-2h5L16 6.5h2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /><Circle {...c} cx="12" cy="12.5" r="3.5" /></>;
       case 'image': return <><Rect {...c} x="3.5" y="5" width="17" height="14" rx="2" /><Circle {...c} cx="9" cy="10" r="1.6" /><Path {...c} d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" /></>;
       case 'info': return <><Circle {...c} cx="12" cy="12" r="8.5" /><Path {...c} d="M12 11v5.5M12 7.8h.01" /></>;
       case 'keyboard': return <><Rect {...c} x="2.5" y="6" width="19" height="12" rx="2" /><Path {...c} d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M8 14.5h8" /></>;
@@ -95,6 +98,7 @@ export default function AppIcon({name, size = 20, color}: AppIconProps) {
       case 'stats': return <Path {...c} d="M4 20V10M10 20V4M16 20v-7M21 20H3" />;
       case 'touch': return <><Path {...c} d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11l3.6.6a2 2 0 0 1 1.7 2.2l-.6 4.5a2 2 0 0 1-2 1.7H10a2 2 0 0 1-1.6-.8L5.8 15.6a1.4 1.4 0 0 1 2-2L9 14.8" /></>;
       case 'tune': return <><Path {...c} d="M4 7h7M15 7h5M4 17h3M11 17h9" /><Circle {...c} cx="13" cy="7" r="2" /><Circle {...c} cx="9" cy="17" r="2" /></>;
+      case 'video': return <><Rect {...c} x="3" y="6.5" width="12.5" height="11" rx="2" /><Path {...c} d="m15.5 10.5 5-3v9l-5-3" /></>;
       case 'volume-down': return <><Path {...c} d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" /><Path {...c} d="M16 12h4" /></>;
       case 'volume-mute': return <><Path {...c} d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" /><Path {...c} d="m16 10 4 4M20 10l-4 4" /></>;
       case 'volume-up': return <><Path {...c} d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" /><Path {...c} d="M16 12h4M18 10v4" /></>;

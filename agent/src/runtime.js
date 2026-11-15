@@ -35,6 +35,8 @@ export async function startAgent({
   authorize = null,
   onSessionEvent = null,
   security = null,
+  // Tests can swap system actions (e.g. a fake camera); defaults to the real ones.
+  systemActions = system,
 }) {
   const capabilities = {
     webrtc: { mode: 'skipped', reason: null },
@@ -67,7 +69,7 @@ export async function startAgent({
     backend,
     input,
     clipboard,
-    system,
+    system: systemActions,
     sendSignal: (type, payload) => client.sendEvent(type, payload),
     log,
     authorize,

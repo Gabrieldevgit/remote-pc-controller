@@ -370,9 +370,9 @@ async function commandSupport() {
       if (resolve) { pending.delete(sessionId); resolve(/^y(es)?$/i.test(text)); }
     }
   });
-  const authorize = ({ sessionId, helperEmail, mode }) => new Promise((resolve) => {
+  const authorize = ({ sessionId, helperEmail, clientName, mode }) => new Promise((resolve) => {
     pending.set(sessionId, resolve);
-    emit({ event: 'request', sessionId, helperEmail, mode });
+    emit({ event: 'request', sessionId, helperEmail, clientName: clientName ?? null, mode });
     if (!json) process.stdout.write(`\n  ${helperEmail} wants to ${mode === 'view' ? 'see' : 'see and control'} your screen. Allow? [y/N] `);
     // No answer within 2 minutes = declined.
     setTimeout(() => { if (pending.delete(sessionId)) resolve(false); }, 120_000);
@@ -390,7 +390,7 @@ async function commandSupport() {
     if (event.type === 'support-started') {
       active = true;
       clearTimeout(refreshTimer);
-      emit({ event: 'started', sessionId: event.sessionId, helperEmail: event.helperEmail, mode: event.mode });
+      emit({ event: 'started', sessionId: event.sessionId, helperEmail: event.helperEmail, clientName: event.clientName ?? null, mode: event.mode });
     } else if (event.type === 'support-ended' && active) {
       emit({ event: 'ended', sessionId: event.sessionId });
       shutdown();
