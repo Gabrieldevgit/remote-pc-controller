@@ -168,3 +168,5 @@ footer .grow { flex: 1; min-width: 200px; }
 
 .sub.tight { margin-bottom: 0; }
 .note.after { margin-top: 20px; }
+.release { margin: -24px 0 28px; color: var(--text-2); font-weight: 600; }
+.hidden { display: none !important; }

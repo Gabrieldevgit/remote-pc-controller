@@ -169,7 +169,8 @@
   <section id="download">
     <div class="wrap">
       <h2>Download</h2>
-      <p class="sub">Free. Both downloads come from the project's GitHub releases.</p>
+      <p class="sub">Free. Always the latest version, straight from the project's GitHub releases.</p>
+      <p class="release" id="release" aria-live="polite">Checking the latest version…</p>
       <div class="dl">
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
@@ -177,8 +178,10 @@
           <p class="note">Windows 10 or 11 (64-bit). Installer or a single portable file — nothing else to install.</p>
           <p class="note"><b>First launch:</b> Windows may say “Windows protected your PC” because the app isn't code-signed yet. Choose <b>More info → Run anyway</b>.</p>
           <div class="row">
-            <a class="btn primary" href="https://github.com/Gabrieldevgit/remote-pc-controller/releases/latest">Download for Windows</a>
+            <a class="btn primary" id="dlSetup" href="https://github.com/Gabrieldevgit/remote-pc-controller/releases/latest">Download for Windows</a>
+            <a class="btn ghost hidden" id="dlPortable" href="https://github.com/Gabrieldevgit/remote-pc-controller/releases/latest">Portable .exe</a>
           </div>
+          <p class="note" id="dlWinSize"></p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17.5h2"/></svg></div>
@@ -186,8 +189,9 @@
           <p class="note">Android 7 or newer. Installed from an APK file (not on Google Play yet).</p>
           <p class="note"><b>To install:</b> open the downloaded file and allow your browser to install apps when Android asks. To let a PC control the phone, also turn on Remote PC under Settings → Accessibility.</p>
           <div class="row">
-            <a class="btn primary" href="https://github.com/Gabrieldevgit/remote-pc-controller/releases/latest">Download the APK</a>
+            <a class="btn primary" id="dlApk" href="https://github.com/Gabrieldevgit/remote-pc-controller/releases/latest">Download the APK</a>
           </div>
+          <p class="note" id="dlApkSize"></p>
         </div>
       </div>
       <p class="note after">iPhone isn't supported yet. Source code: <a href="https://github.com/Gabrieldevgit/remote-pc-controller">github.com/Gabrieldevgit/remote-pc-controller</a>.</p>
@@ -235,6 +239,6 @@
     <a href="https://github.com/Gabrieldevgit/remote-pc-controller">GitHub</a>
   </div>
 </footer>
-<script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+<script src="/site.js" defer></script>
 </body>
 </html>
