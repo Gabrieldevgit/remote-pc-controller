@@ -492,7 +492,17 @@ const RemoteSurface = React.forwardRef<RemoteSurfaceHandle, RemoteSurfaceProps>(
           collapsable={false}
           onLayout={e => {
             const {width, height} = e.nativeEvent.layout;
+            const prev = layoutRef.current;
+            if (prev.width === width && prev.height === height) {
+              return;
+            }
             setLayout({width, height});
+            // Rotated or resized: refit the whole PC screen (zoom 1).
+            if (prev.width > 0 && viewRef.current.zoom !== 1) {
+              viewRef.current = {zoom: 1, px: 0, py: 0};
+              setView(viewRef.current);
+              live.current.onZoomChange?.(1);
+            }
           }}>
           {W > 0 && streamUrl ? (
             <RTCView streamURL={streamUrl} style={videoStyle} objectFit="contain" zOrder={0} />

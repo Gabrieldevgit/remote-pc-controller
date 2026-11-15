@@ -10,6 +10,7 @@ import {
   Text,
   Vibration,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -465,7 +466,10 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
   const [toolbarVisible, setToolbarVisible] = React.useState(true);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [filesOpen, setFilesOpen] = React.useState(false);
-  const [rotationLocked, setRotationLocked] = React.useState(true);
+  // Follow the phone's rotation: in landscape the PC screen fills the display.
+  const [rotationLocked, setRotationLocked] = React.useState(false);
+  const window = useWindowDimensions();
+  const landscape = window.width > window.height;
   const [fullscreen, setFullscreen] = React.useState(false);
   const [jpegFrame, setJpegFrame] = React.useState<string | null>(null);
   const [cursor, setCursor] = React.useState<RemoteCursor | null>(null);
@@ -696,10 +700,11 @@ function RemoteSession({route, navigation}: RemoteSessionProps) {
   React.useEffect(() => () => useSessionStore.getState().reset(), []);
 
   // Fullscreen hides the status bar.
+  // Landscape also hides it, so the PC screen uses the whole display.
   React.useEffect(() => {
-    StatusBar.setHidden(fullscreen, 'fade');
+    StatusBar.setHidden(fullscreen || landscape, 'fade');
     return () => StatusBar.setHidden(false, 'fade');
-  }, [fullscreen]);
+  }, [fullscreen, landscape]);
 
   // Rotation lock: native-stack screens accept an `orientation` option.
   React.useEffect(() => {
