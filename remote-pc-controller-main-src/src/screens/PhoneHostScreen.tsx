@@ -17,9 +17,11 @@ import {
   enableAvailability,
   openAccessibilitySettings,
   openAppDetails,
+  openRotationSettings,
   phoneHostSupported,
   recentPhoneSessions,
   refreshAccessibility,
+  refreshRotation,
   stopSharing,
   usePhoneHostStore,
   type PhoneSessionRow,
@@ -84,6 +86,7 @@ export default function PhoneHostScreen({navigation}: Props) {
   const available = usePhoneHostStore(s => s.available);
   const busy = usePhoneHostStore(s => s.busy);
   const accessibility = usePhoneHostStore(s => s.accessibility);
+  const rotate = usePhoneHostStore(s => s.rotate);
   const phase = usePhoneHostStore(s => s.phase);
   const pcName = usePhoneHostStore(s => s.pcName);
   const audioOn = usePhoneHostStore(s => s.audioOn);
@@ -92,6 +95,7 @@ export default function PhoneHostScreen({navigation}: Props) {
 
   React.useEffect(() => {
     void refreshAccessibility();
+    void refreshRotation();
     void recentPhoneSessions().then(setHistory);
   }, [available, phase]);
 
@@ -176,11 +180,26 @@ export default function PhoneHostScreen({navigation}: Props) {
             ) : null}
           </Step>
           <Step
+            icon="rotate"
+            title="3. Allow rotation (optional)"
+            text="Lets the PC's Rotate buttons turn this phone. Android calls it “Modify system settings”. Your own auto-rotate setting comes back when the session ends."
+            done={rotate}>
+            {!rotate ? (
+              <View style={styles.stepActions}>
+                <SecondaryButton label="Allow rotation" onPress={openRotationSettings} />
+              </View>
+            ) : null}
+          </Step>
+          <Step
             icon="shield"
-            title="3. Accept each session"
+            title="4. Accept each session"
             text="When your PC connects, tap Allow, then accept Android’s “Start recording or casting?” prompt. A notification shows while the phone is shared."
           />
         </Card>
+
+        {__DEV__ ? (
+          <SecondaryButton label="Input test (debug)" variant="text" onPress={() => navigation.navigate('InputTest')} />
+        ) : null}
 
         <SectionHeader title="Recent sessions" />
         <Card padded={false}>

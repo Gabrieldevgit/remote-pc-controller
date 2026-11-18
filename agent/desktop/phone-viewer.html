@@ -6,78 +6,150 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:; media-src blob: mediastream:">
 <title>Phone — Remote PC</title>
 <style>
+/* Emulator-style phone window: a frameless, transparent window drawn as a
+   phone (bezel + screen) with a vertical toolbar beside it. Palette and
+   principles from the apps: no gradients or glow, clean borders. */
 :root {
-  --bar: #17191C; --bar-2: #292E34; --text: #F4F2ED; --text-2: #C4C3BE; --text-3: #92969A;
-  --accent: #C87545; --border: #2F343B; --danger: #F0A496;
+  --body: #17191C; --panel: #1E2125; --panel-2: #292E34; --border: #2F343B; --border-strong: #3D434B;
+  --text: #F4F2ED; --text-2: #C4C3BE; --text-3: #92969A; --accent: #C87545; --accent-soft: #3A2A20;
+  --on-accent-soft: #F2C6A8; --danger: #F0A496;
+  --M: 10px; --G: 10px; --B: 12px; --TOOL: 54px;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: #000; color: var(--text); font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
-.bar { height: 52px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: var(--bar); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
-.bar::-webkit-scrollbar { display: none; }
-.sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex: none; }
-.btn { flex: none; height: 36px; min-width: 36px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-weight: 600; }
-.btn:hover { background: var(--bar-2); }
-.btn:disabled { opacity: .4; cursor: default; background: transparent; }
-.btn.on { background: #3A2A20; color: #F2C6A8; }
-.btn svg { width: 20px; height: 20px; }
-.btn.end { color: var(--danger); border-color: var(--border); }
-select { flex: none; height: 32px; background: var(--bar-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; font: inherit; }
-.spacer { flex: 1; min-width: 4px; }
-.stage { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; display: grid; place-items: center; }
-video { width: 100%; height: 100%; object-fit: contain; background: #000; outline: none; }
-video.control { cursor: crosshair; }
-.overlay { position: absolute; inset: 52px 0 0 0; display: grid; place-items: center; padding: 24px; text-align: center; pointer-events: none; }
-.card { pointer-events: auto; max-width: 340px; background: var(--bar); border: 1px solid var(--border); border-radius: 16px; padding: 22px; display: grid; gap: 10px; }
-.card h2 { margin: 0; font-size: 18px; font-weight: 600; }
-.card p { margin: 0; color: var(--text-2); }
-.card .actions { display: flex; justify-content: center; gap: 8px; margin-top: 6px; }
-.primary { background: var(--accent); color: #17191C; border-radius: 99px; padding: 8px 18px; border: 0; font: inherit; font-weight: 600; cursor: pointer; }
-.spinner { width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--bar-2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+html, body { margin: 0; height: 100%; background: transparent; color: var(--text); font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+body[data-mode="max"], body[data-mode="full"] { background: #0E0F11; }
+.stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--G); padding: var(--M); }
+body[data-mode="normal"] .stage { justify-content: flex-start; align-items: flex-start; }
+body[data-mode="normal"].land .stage { align-items: center; }
+
+/* ---- the phone ---- */
+.device { position: relative; flex: none; background: var(--body); border: 1px solid var(--border-strong); border-radius: 40px; padding: var(--B); box-shadow: 0 1px 2px rgba(0,0,0,.35); -webkit-app-region: drag; }
+.cam { position: absolute; top: calc(var(--B) / 2 - 3px); left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--panel-2); }
+.device.land .cam { top: 50%; left: calc(var(--B) / 2 - 3px); margin: -3px 0 0; }
+.screen { position: relative; overflow: hidden; border-radius: 28px; background: #000; -webkit-app-region: no-drag; }
+.zoomwrap { position: absolute; inset: 0; transform-origin: 50% 50%; transition: transform .15s ease; }
+video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; outline: none; }
+video.control { cursor: default; }
+.screen.zooming video { cursor: zoom-in; }
+.grip { position: absolute; right: 2px; bottom: 2px; width: 22px; height: 22px; cursor: nwse-resize; -webkit-app-region: no-drag; display: grid; place-items: center; color: var(--text-3); }
+.grip svg { width: 12px; height: 12px; }
+body:not([data-mode="normal"]) .grip { display: none; }
+
+/* states drawn on the screen */
+.msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: #0E0F11; }
+.msg .box { display: grid; gap: 10px; max-width: 280px; }
+.msg h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.msg p { margin: 0; color: var(--text-2); }
+.spinner { width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--panel-2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-.toasts { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 6px; pointer-events: none; }
-.toast { justify-self: center; max-width: 100%; background: rgba(23,25,28,.92); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text-2); }
-.badge { flex: none; color: var(--text-3); padding: 0 6px; white-space: nowrap; }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.flash.on { opacity: .5; transition: none; }
+.toasts { position: absolute; left: 10px; right: 10px; bottom: 14px; display: grid; gap: 6px; pointer-events: none; }
+.toast { justify-self: center; max-width: 100%; background: rgba(23,25,28,.94); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text-2); }
+
+/* ---- emulator toolbar ---- */
+.tools { flex: none; width: var(--TOOL); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; -webkit-app-region: drag; }
+.winrow { display: flex; gap: 2px; margin-bottom: 4px; }
+.tools .winrow button { width: 20px; height: 20px; border-radius: 6px; }
+.tools .winrow svg { width: 11px; height: 11px; }
+.tools button { -webkit-app-region: no-drag; width: 40px; height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--text); display: grid; place-items: center; cursor: pointer; padding: 0; }
+.tools button:hover { background: var(--panel-2); }
+.tools button:disabled { opacity: .35; cursor: default; background: transparent; }
+.tools button.on { background: var(--accent-soft); color: var(--on-accent-soft); }
+.tools button svg { width: 20px; height: 20px; }
+.tools .close:hover { background: #5A2A22; }
+.sep { width: 28px; height: 1px; background: var(--border); margin: 4px 0; flex: none; }
+
+/* ---- More panel ---- */
+.more { position: fixed; top: var(--M); width: 272px; max-height: calc(100% - 2 * var(--M)); overflow: auto; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 14px; padding: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.45); z-index: 5; -webkit-app-region: no-drag; }
+.more h3 { margin: 4px 8px 6px; font-size: 13px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; }
+.more .item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.more .item:hover { background: var(--panel-2); }
+.more .item:disabled { opacity: .4; cursor: default; background: transparent; }
+.more .item svg { width: 18px; height: 18px; flex: none; color: var(--text-2); }
+.more .item .state { margin-left: auto; color: var(--text-3); font-size: 12px; }
+.more .item.on .state { color: var(--on-accent-soft); }
+.more .item.danger { color: var(--danger); }
+.more .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; color: var(--text-2); font-size: 14px; }
+.more select { margin-left: auto; height: 30px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; font: inherit; }
+.more .info { padding: 6px 10px 2px; color: var(--text-3); font-size: 12px; line-height: 1.6; }
+.more hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
 .hidden { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
-<body>
-<div class="bar" role="toolbar" aria-label="Phone controls">
-  <button class="btn" id="back" title="Back (Esc or right-click)" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></button>
-  <button class="btn" id="home" title="Home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6.5"/></svg></button>
-  <button class="btn" id="recents" title="Recent apps" aria-label="Recent apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
-  <button class="btn" id="notifications" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"/></svg></button>
-  <div class="sep"></div>
-  <button class="btn" id="sound" title="Phone sound" aria-label="Phone sound" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10H4Z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg></button>
-  <button class="btn" id="clipTo" title="Send this PC's clipboard to the phone" aria-label="Clipboard to phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 10v6M9.5 13.5 12 16l2.5-2.5"/></svg></button>
-  <button class="btn" id="clipFrom" title="Copy the phone's clipboard to this PC" aria-label="Clipboard from phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 16v-6M9.5 12.5 12 10l2.5 2.5"/></svg></button>
-  <button class="btn" id="sendFile" title="Send a file to the phone" aria-label="Send a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7.5 9.5 12 5l4.5 4.5M5 19h14"/></svg></button>
-  <button class="btn" id="getFile" title="Get a file from the phone (opens the picker on the phone)" aria-label="Get a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v11M7.5 11.5 12 16l4.5-4.5M5 19h14"/></svg></button>
-  <select id="res" title="Stream resolution" aria-label="Stream resolution">
-    <option value="auto">Auto</option>
-    <option value="1920x1080">1080p</option>
-    <option value="1600x900">900p</option>
-    <option value="1280x720">720p</option>
-    <option value="960x540">540p</option>
-    <option value="854x480">480p</option>
-    <option value="640x360">360p</option>
-  </select>
-  <span class="badge" id="badge"></span>
-  <div class="spacer"></div>
-  <button class="btn end" id="disconnect" title="Disconnect">Disconnect</button>
-</div>
+<body data-mode="normal">
+<div class="stage" id="stage">
+  <div class="device" id="device">
+    <div class="cam" aria-hidden="true"></div>
+    <div class="screen" id="screen">
+      <div class="zoomwrap" id="zoomwrap"><video id="video" autoplay playsinline muted tabindex="0"></video></div>
+      <div class="msg" id="msg" role="status">
+        <div class="box">
+          <div class="spinner" id="spin"></div>
+          <h2 id="msgTitle">Connecting…</h2>
+          <p id="msgText"></p>
+        </div>
+      </div>
+      <div class="flash" id="flash"></div>
+      <div class="toasts" id="toasts" aria-live="polite"></div>
+    </div>
+    <div class="grip" id="grip" title="Drag to resize (Ctrl + / Ctrl −)" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M11 4 4 11M11 8 8 11"/></svg></div>
+  </div>
 
-<div class="stage"><video id="video" autoplay playsinline muted tabindex="0"></video></div>
-
-<div class="overlay" id="overlay">
-  <div class="card">
-    <div class="spinner" id="spin"></div>
-    <h2 id="ovTitle">Connecting…</h2>
-    <p id="ovText"></p>
-    <div class="actions hidden" id="ovActions"><button class="primary" id="ovClose">Close</button></div>
+  <div class="tools" role="toolbar" aria-label="Phone controls" id="tools">
+    <div class="winrow">
+      <button id="wMin" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 6h7"/></svg></button>
+      <button id="wClose" class="close" title="Close (disconnects)" aria-label="Close"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m3 3 6 6M9 3 3 9"/></svg></button>
+    </div>
+    <button id="bPower" class="ctl" title="Power — click: lock / wake · right-click: power menu (Ctrl+P)" aria-label="Power"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v8M7.1 5.9A8 8 0 1 0 17 6"/></svg></button>
+    <button id="bVolUp" class="ctl" title="Volume up (Ctrl+↑)" aria-label="Volume up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3Z"/><path d="M16 12h5M18.5 9.5v5"/></svg></button>
+    <button id="bVolDown" class="ctl" title="Volume down (Ctrl+↓)" aria-label="Volume down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3Z"/><path d="M16 12h5"/></svg></button>
+    <button id="bRotL" class="ctl rot" title="Rotate left (Ctrl+←)" aria-label="Rotate left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="9" width="10" height="12" rx="2"/><path d="M4 12a8 8 0 0 1 8-8h2M11 1.5 14 4l-3 2.5"/></svg></button>
+    <button id="bRotR" class="ctl rot" title="Rotate right (Ctrl+→)" aria-label="Rotate right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="10" height="12" rx="2"/><path d="M20 12a8 8 0 0 0-8-8h-2M13 1.5 10 4l3 2.5"/></svg></button>
+    <button id="bShot" class="ctl" title="Screenshot to this PC (Ctrl+S)" aria-label="Screenshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5a2 2 0 0 1 2-2h2l1.5-2h5L16 6.5h2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3.5"/></svg></button>
+    <button id="bZoom" title="Zoom mode — click to zoom in, right-click out, Esc to leave" aria-label="Zoom mode" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5M10.5 8v5M8 10.5h5"/></svg></button>
+    <div class="sep"></div>
+    <button id="bBack" class="ctl" title="Back (Esc · Ctrl+Backspace · right-click)" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M17 5v14L6 12Z"/></svg></button>
+    <button id="bHome" class="ctl" title="Home (Ctrl+H)" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/></svg></button>
+    <button id="bOverview" class="ctl" title="Overview (Ctrl+O)" aria-label="Overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+    <div class="sep"></div>
+    <button id="bMax" title="Maximize" aria-label="Maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+    <button id="bFull" title="Fullscreen (F11)" aria-label="Fullscreen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+    <button id="bMore" title="More" aria-label="More" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
   </div>
 </div>
-<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="more hidden" id="more" role="menu" aria-label="More">
+  <h3>Phone</h3>
+  <button class="item ctl" id="mNotif" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"/></svg>Notifications</button>
+  <button class="item ctl" id="mQuick" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Quick settings</button>
+  <button class="item ctl" id="mPhoneShot" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M10 9h4v4h-4z"/></svg>Screenshot on the phone</button>
+  <hr>
+  <h3>Sharing</h3>
+  <button class="item ctl" id="mSound" role="menuitemcheckbox" aria-checked="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10H4Z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>Phone sound<span class="state" id="mSoundState">Off</span></button>
+  <button class="item ctl" id="mClipTo" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 10v6M9.5 13.5 12 16l2.5-2.5"/></svg>Clipboard → phone</button>
+  <button class="item ctl" id="mClipFrom" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9zM12 16v-6M9.5 12.5 12 10l2.5 2.5"/></svg>Clipboard ← phone</button>
+  <button class="item ctl" id="mSendFile" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7.5 9.5 12 5l4.5 4.5M5 19h14"/></svg>Send a file to the phone</button>
+  <button class="item ctl" id="mGetFile" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v11M7.5 11.5 12 16l4.5-4.5M5 19h14"/></svg>Get a file from the phone</button>
+  <div class="row">Resolution
+    <select id="res" class="ctl" aria-label="Stream resolution">
+      <option value="auto">Auto</option>
+      <option value="1920x1080">1080p</option>
+      <option value="1600x900">900p</option>
+      <option value="1280x720">720p</option>
+      <option value="960x540">540p</option>
+      <option value="854x480">480p</option>
+      <option value="640x360">360p</option>
+    </select>
+  </div>
+  <hr>
+  <h3>Window</h3>
+  <button class="item" id="mTop" role="menuitemcheckbox" aria-checked="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M8 8l4-4 4 4"/></svg>Always on top<span class="state" id="mTopState">Off</span></button>
+  <div class="info" id="info">Not connected</div>
+  <hr>
+  <button class="item danger" id="mDisconnect" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v8M7.1 5.9A8 8 0 1 0 17 6"/></svg>Disconnect</button>
+</div>
 <input type="file" id="filePick" class="hidden" multiple>
 
 <script>
@@ -90,14 +162,22 @@ const CHUNK = 48 * 1024;
 const MAX_FILE = 1024 * 1024 * 1024;
 document.title = `${PHONE_NAME} — Remote PC`;
 
+// Gesture timing (see the input section below): a press released within
+// HOLD_START_MS without moving is one tap.
+const DRAG_START_PX = 6;   // moving this far while pressed = live finger (swipe / drag)
+const HOLD_START_MS = 300; // pressing still this long = live finger (Android long press)
+
 let pc = null;
 let input = null;
 let audioCh = null;
 let started = false;
 let ended = false;
 let canControl = false;
-let screen = null;
+let canRotate = false;
+let streamSize = null;
 const pendingIce = [];
+
+// ---- small helpers ----------------------------------------------------------------------
 
 function toast(text, ms = 3500) {
   const el = document.createElement('div');
@@ -106,29 +186,126 @@ function toast(text, ms = 3500) {
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), ms);
 }
-function overlay(title, text, {spin = false, close = false} = {}) {
-  $('#overlay').classList.toggle('hidden', !title);
-  $('#ovTitle').textContent = title || '';
-  $('#ovText').textContent = text || '';
+function message(title, text, spin = false) {
+  $('#msg').classList.toggle('hidden', !title);
+  $('#msgTitle').textContent = title || '';
+  $('#msgText').textContent = text || '';
   $('#spin').classList.toggle('hidden', !spin);
-  $('#ovActions').classList.toggle('hidden', !close);
 }
 function send(msg) {
   if (input && input.readyState === 'open') input.send(JSON.stringify(msg));
 }
 function setControls(on) {
-  for (const id of ['back', 'home', 'recents', 'notifications', 'clipTo', 'clipFrom', 'sendFile', 'getFile', 'sound', 'res']) $('#' + id).disabled = !on;
+  document.querySelectorAll('.ctl').forEach(el => { el.disabled = !on; });
+  updateRotate();
+}
+function updateRotate() {
+  const ok = Boolean(input && input.readyState === 'open' && canControl);
+  for (const id of ['#bRotL', '#bRotR']) {
+    $(id).disabled = !ok;
+    $(id).title = canRotate
+      ? $(id).title.replace(/ — .*$/, '')
+      : ($(id).getAttribute('aria-label') + ' — on the phone, allow "Modify system settings" for Remote PC first');
+  }
 }
 setControls(false);
 
-// ---- session / signaling ---------------------------------------------------------------
+// ---- layout: phone size, rotation, maximize / fullscreen ------------------------------------
+
+const M = 10, G = 10, B = 12, TOOL = 54;
+const SIZE_KEY = 'rpc-phone-long:' + PHONE_ID;
+let mode = 'normal';
+let aspect = 1080 / 2340;          // screen width / height
+let longPx = (() => {
+  try { return Number(localStorage.getItem(SIZE_KEY)) || 0; } catch { return 0; }
+})() || Math.round(Math.min(780, screen.availHeight * 0.78));
+
+function screenSize(long) {
+  return aspect <= 1
+    ? {w: Math.round(long * aspect), h: long}
+    : {w: long, h: Math.round(long / aspect)};
+}
+function setScreen(w, h) {
+  const s = $('#screen');
+  s.style.width = w + 'px';
+  s.style.height = h + 'px';
+  const radius = Math.round(Math.min(w, h) * 0.075);
+  s.style.borderRadius = radius + 'px';
+  $('#device').style.borderRadius = (radius + B) + 'px';
+  $('#device').classList.toggle('land', aspect > 1);
+  document.body.classList.toggle('land', aspect > 1);
+}
+function toolsHeight() {
+  return $('#tools').getBoundingClientRect().height || 560;
+}
+let fitTimer = null;
+function layout() {
+  if (mode === 'normal') {
+    const maxLong = Math.max(320, (aspect <= 1 ? screen.availHeight : screen.availWidth - TOOL - 60) - 2 * M - 2 * B - 2);
+    longPx = Math.max(300, Math.min(longPx, maxLong));
+    const {w, h} = screenSize(longPx);
+    setScreen(w, h);
+    const winW = 2 * M + w + 2 * B + 2 + G + TOOL;
+    const winH = 2 * M + Math.max(h + 2 * B + 2, toolsHeight());
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(() => window.phone.fit({width: winW, height: winH}), 0);
+    try { localStorage.setItem(SIZE_KEY, String(longPx)); } catch {}
+  } else {
+    // Maximized / fullscreen: as large as the window allows.
+    const availW = innerWidth - 2 * M - G - TOOL - 2 * B - 2;
+    const availH = innerHeight - 2 * M - 2 * B - 2;
+    let w = availW, h = Math.round(availW / aspect);
+    if (h > availH) { h = availH; w = Math.round(availH * aspect); }
+    setScreen(Math.max(100, w), Math.max(100, h));
+  }
+  placeMore();
+}
+function setAspect(width, height) {
+  if (!(width > 0 && height > 0)) return;
+  const next = width / height;
+  if (Math.abs(next - aspect) < 0.002) return;
+  aspect = next;
+  layout();
+}
+window.addEventListener('resize', () => { if (mode !== 'normal') layout(); else placeMore(); });
+window.phone.onWindowState(s => {
+  mode = s.mode;
+  document.body.dataset.mode = mode;
+  $('#bMax').classList.toggle('on', mode === 'max');
+  $('#bFull').classList.toggle('on', mode === 'full');
+  $('#mTop').classList.toggle('on', s.top);
+  $('#mTop').setAttribute('aria-checked', String(s.top));
+  $('#mTopState').textContent = s.top ? 'On' : 'Off';
+  setTimeout(layout, 30);
+});
+
+// Resize grip (normal mode): the long side follows the pointer.
+let gripStart = null;
+$('#grip').addEventListener('pointerdown', e => {
+  gripStart = {x: e.screenX, y: e.screenY, long: longPx};
+  $('#grip').setPointerCapture(e.pointerId);
+});
+$('#grip').addEventListener('pointermove', e => {
+  if (!gripStart) return;
+  const delta = aspect <= 1 ? e.screenY - gripStart.y : e.screenX - gripStart.x;
+  longPx = Math.round(gripStart.long + delta);
+  layout();
+});
+$('#grip').addEventListener('pointerup', () => { gripStart = null; });
+function scaleBy(f) {
+  if (mode !== 'normal') return;
+  longPx = Math.round(longPx * f);
+  layout();
+}
+
+// ---- session / signaling ------------------------------------------------------------------
 
 function finish(title, text) {
   if (ended) return;
   ended = true;
   setControls(false);
   try { pc && pc.close(); } catch {}
-  overlay(title, text, {close: true});
+  message(title, text);
 }
 
 window.phone.onEvent(ev => {
@@ -154,7 +331,7 @@ window.phone.onEvent(ev => {
 async function negotiate() {
   if (started || ended) return;
   started = true;
-  overlay('Connecting…', 'The phone allowed the connection.', {spin: true});
+  message('Connecting…', 'The phone allowed the connection.', true);
   pc = new RTCPeerConnection({iceServers: ICE});
   pc.addTransceiver('video', {direction: 'recvonly'});
   input = pc.createDataChannel('input', {ordered: true});
@@ -170,7 +347,8 @@ async function negotiate() {
   pc.ontrack = e => {
     const v = $('#video');
     v.srcObject = e.streams[0] || new MediaStream([e.track]);
-    v.onloadedmetadata = () => { overlay(null); v.focus(); };
+    v.onloadedmetadata = () => { message(null); v.focus(); };
+    v.onresize = () => setAspect(v.videoWidth, v.videoHeight);
   };
   pc.ondatachannel = e => { if (e.channel.label.startsWith('file:')) receiveFile(e.channel); };
   pc.onicecandidate = e => {
@@ -187,19 +365,21 @@ async function negotiate() {
 function onMessage(msg) {
   switch (msg.t) {
     case 'screen':
-      screen = {width: msg.width, height: msg.height};
-      window.phone.fit(screen);
+      setAspect(msg.width, msg.height);
       break;
     case 'access':
       canControl = msg.input === true;
+      canRotate = msg.rotate === true;
       $('#video').classList.toggle('control', canControl);
-      $('#badge').textContent = canControl ? '' : 'View only';
+      updateRotate();
       if (!canControl) toast('View only: on the phone, turn on Remote PC in Settings → Accessibility to allow control.', 7000);
+      updateInfo();
       break;
     case 'audio.state':
-      $('#sound').disabled = !msg.available;
-      $('#sound').classList.toggle('on', msg.on === true);
-      $('#sound').setAttribute('aria-pressed', String(msg.on === true));
+      $('#mSound').disabled = !msg.available;
+      $('#mSound').classList.toggle('on', msg.on === true);
+      $('#mSound').setAttribute('aria-checked', String(msg.on === true));
+      $('#mSoundState').textContent = msg.on ? 'On' : 'Off';
       if (msg.error) toast(msg.error);
       if (!msg.on) stopAudio();
       break;
@@ -207,7 +387,7 @@ function onMessage(msg) {
       window.phone.writeClipboard(String(msg.text || '')).then(() => toast(msg.text ? 'Phone clipboard copied to this PC.' : 'The phone clipboard is empty (Android only shares it while Remote PC is open).'));
       break;
     case 'quality.ack':
-      if (msg.size) $('#badge').textContent = (canControl ? '' : 'View only · ') + `${msg.size.width}×${msg.size.height}`;
+      if (msg.size) { streamSize = msg.size; updateInfo(); }
       break;
     case 'file.picking':
       toast('Pick a file on the phone…', 5000);
@@ -216,17 +396,20 @@ function onMessage(msg) {
       toast('No file was picked.');
       break;
     case 'error':
-      toast(String(msg.message || 'Something went wrong on the phone.'));
+      if (/Modify system settings/i.test(String(msg.message))) { canRotate = false; updateRotate(); }
+      toast(String(msg.message || 'Something went wrong on the phone.'), 5000);
       break;
   }
 }
 
-// ---- pointer → touch ------------------------------------------------------------------
+// ---- input: click = tap, drag = live finger, hold = long press ------------------------------
+// A click is sent as ONE complete tap. Sending it as a live finger (down …
+// network … up) kept the finger pressed past Android's long-press timeout.
 
+const video = $('#video');
 function toPhone(e) {
-  const v = $('#video');
-  const r = v.getBoundingClientRect();
-  const vw = v.videoWidth, vh = v.videoHeight;
+  const r = video.getBoundingClientRect();
+  const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
   const scale = Math.min(r.width / vw, r.height / vh);
   const w = vw * scale, h = vh * scale;
@@ -235,52 +418,80 @@ function toPhone(e) {
   return {x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), inside: x >= 0 && x <= 1 && y >= 0 && y <= 1};
 }
 
-let down = false;
-let pendingMove = null;
-let moveTimer = null;
-let lastMoveAt = 0;
-const video = $('#video');
-// ~60 moves per second at most; the latest position wins. (Timers, not
-// requestAnimationFrame, so a background window keeps sending.)
+let press = null;       // {x, y, cx, cy, t} while the button is down and not yet live
+let live = false;       // a live finger is down on the phone
+let holdTimer = null;
+let pendingMove = null, moveTimer = null, lastMoveAt = 0;
+
+function startLive(p) {
+  clearTimeout(holdTimer);
+  live = true;
+  send({t: 'touch', phase: 'down', x: p.x, y: p.y});
+}
 function flushMove() {
   moveTimer = null;
-  if (pendingMove && down) {
+  if (pendingMove && live) {
     send({t: 'touch', phase: 'move', x: pendingMove.x, y: pendingMove.y});
     lastMoveAt = performance.now();
   }
   pendingMove = null;
 }
 video.addEventListener('pointerdown', e => {
+  if (zoomMode) return;
   if (!canControl || e.button !== 0) return;
   const p = toPhone(e);
   if (!p || !p.inside) return;
   video.setPointerCapture(e.pointerId);
-  down = true;
-  send({t: 'touch', phase: 'down', x: p.x, y: p.y});
+  press = {x: p.x, y: p.y, cx: e.clientX, cy: e.clientY, t: performance.now()};
+  holdTimer = setTimeout(() => { if (press) { startLive(press); press = null; } }, HOLD_START_MS);
 });
 video.addEventListener('pointermove', e => {
-  if (!down) return;
+  if (press) {
+    if (Math.hypot(e.clientX - press.cx, e.clientY - press.cy) < DRAG_START_PX) return;
+    startLive(press);
+    press = null;
+  }
+  if (!live) return;
   const p = toPhone(e);
   if (!p) return;
   pendingMove = p;
   if (!moveTimer) moveTimer = setTimeout(flushMove, Math.max(0, 16 - (performance.now() - lastMoveAt)));
 });
 function release(e) {
-  if (!down) return;
+  clearTimeout(holdTimer);
+  if (press) {
+    const held = performance.now() - press.t;
+    if (held < HOLD_START_MS) {
+      // Released before HOLD_START_MS without moving → one complete tap.
+      send({t: 'tap', x: press.x, y: press.y});
+    } else {
+      // Held long enough but the hold timer ran late: still a long press.
+      const p0 = press;
+      startLive(p0);
+      live = false;
+      setTimeout(() => send({t: 'touch', phase: 'up', x: p0.x, y: p0.y}), 500);
+    }
+    press = null;
+    return;
+  }
+  if (!live) return;
   if (pendingMove) flushMove();
-  down = false;
-  pendingMove = null;
+  live = false;
   const p = toPhone(e) || {x: 0.5, y: 0.5};
   send({t: 'touch', phase: 'up', x: p.x, y: p.y});
 }
 video.addEventListener('pointerup', release);
 video.addEventListener('pointercancel', release);
-video.addEventListener('contextmenu', e => { e.preventDefault(); if (canControl) send({t: 'nav', action: 'back'}); });
+video.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (zoomMode) return;
+  if (canControl) send({t: 'nav', action: 'back'});
+});
 
 let wheelAcc = 0, wheelTimer = null, wheelAt = null;
 video.addEventListener('wheel', e => {
   e.preventDefault();
-  if (!canControl) return;
+  if (!canControl || zoomMode) return;
   const p = toPhone(e);
   if (!p || !p.inside) return;
   wheelAcc += e.deltaY;
@@ -295,16 +506,168 @@ video.addEventListener('wheel', e => {
   }, 120);
 }, {passive: false});
 
-// ---- keyboard ---------------------------------------------------------------------------
+// ---- zoom mode (a viewing aid like the emulator's) -------------------------------------------
 
-const KEYS = new Set(['Backspace', 'Delete', 'Enter', 'NumpadEnter', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
+let zoomMode = false, zoom = 1;
+function setZoomMode(on) {
+  zoomMode = on;
+  $('#bZoom').classList.toggle('on', on);
+  $('#bZoom').setAttribute('aria-pressed', String(on));
+  $('#screen').classList.toggle('zooming', on);
+  if (!on) { zoom = 1; $('#zoomwrap').style.transform = ''; }
+}
+function zoomAt(e, dir) {
+  const r = $('#screen').getBoundingClientRect();
+  zoom = dir > 0 ? Math.min(4, zoom * 2) : Math.max(1, zoom / 2);
+  const ox = ((e.clientX - r.left) / r.width) * 100, oy = ((e.clientY - r.top) / r.height) * 100;
+  $('#zoomwrap').style.transformOrigin = `${ox}% ${oy}%`;
+  $('#zoomwrap').style.transform = zoom > 1 ? `scale(${zoom})` : '';
+}
+$('#screen').addEventListener('click', e => { if (zoomMode) zoomAt(e, +1); });
+$('#screen').addEventListener('contextmenu', e => { if (zoomMode) { e.preventDefault(); zoomAt(e, -1); } });
+
+// ---- toolbar ----------------------------------------------------------------------------------
+
+function nav(action) { send({t: 'nav', action}); video.focus(); }
+$('#wMin').onclick = () => window.phone.window('minimize');
+$('#wClose').onclick = () => { if (!ended) window.phone.end('pc_closed'); window.phone.window('close'); };
+$('#bPower').onclick = () => send({t: 'power'});
+$('#bPower').addEventListener('contextmenu', e => { e.preventDefault(); send({t: 'power', long: true}); });
+$('#bVolUp').onclick = () => send({t: 'volume', dir: 'up'});
+$('#bVolDown').onclick = () => send({t: 'volume', dir: 'down'});
+$('#bRotL').onclick = () => rotate('left');
+$('#bRotR').onclick = () => rotate('right');
+function rotate(dir) {
+  if (!canRotate) { toast('To rotate from the PC, open Remote PC on the phone → Control this phone → Allow rotation.', 6000); return; }
+  send({t: 'rotate', dir});
+}
+$('#bShot').onclick = () => screenshot();
+$('#bZoom').onclick = () => setZoomMode(!zoomMode);
+$('#bBack').onclick = () => nav('back');
+$('#bHome').onclick = () => nav('home');
+$('#bOverview').onclick = () => nav('recents');
+$('#bMax').onclick = () => window.phone.window('maximize');
+$('#bFull').onclick = () => window.phone.window('fullscreen');
+
+// More panel
+function placeMore() {
+  const t = $('#tools').getBoundingClientRect();
+  const panel = $('#more');
+  panel.style.left = Math.max(M, t.left - 272 - 8) + 'px';
+  panel.style.top = Math.max(M, t.top) + 'px';
+}
+function toggleMore(open) {
+  const show = open ?? $('#more').classList.contains('hidden');
+  $('#more').classList.toggle('hidden', !show);
+  $('#bMore').classList.toggle('on', show);
+  $('#bMore').setAttribute('aria-expanded', String(show));
+  if (show) { placeMore(); updateInfo(); }
+}
+$('#bMore').onclick = () => toggleMore();
+document.addEventListener('pointerdown', e => {
+  if (!$('#more').classList.contains('hidden') && !$('#more').contains(e.target) && !$('#bMore').contains(e.target)) toggleMore(false);
+});
+$('#mNotif').onclick = () => { toggleMore(false); nav('notifications'); };
+$('#mQuick').onclick = () => { toggleMore(false); nav('quick_settings'); };
+$('#mPhoneShot').onclick = () => { toggleMore(false); nav('screenshot'); toast('Screenshot saved on the phone.'); };
+$('#mSound').onclick = () => {
+  const on = !$('#mSound').classList.contains('on');
+  if (on) ensureAudio();
+  send({t: 'audio.set', on});
+};
+$('#mClipTo').onclick = async () => {
+  const text = await window.phone.readClipboard();
+  send({t: 'clipboard.set', text});
+  toast(text ? 'Clipboard sent to the phone — long-press a field there and Paste.' : 'This PC’s clipboard is empty.');
+};
+$('#mClipFrom').onclick = () => send({t: 'clipboard.get'});
+$('#mSendFile').onclick = () => { toggleMore(false); $('#filePick').click(); };
+$('#mGetFile').onclick = () => { toggleMore(false); send({t: 'file.request'}); };
+$('#filePick').onchange = () => { for (const f of $('#filePick').files) sendFile(f); $('#filePick').value = ''; };
+$('#res').onchange = () => { sendResolution(); };
+$('#mTop').onclick = () => window.phone.window('top', !$('#mTop').classList.contains('on'));
+$('#mDisconnect').onclick = () => { window.phone.end('pc_closed'); finish('Disconnected', 'You ended the session.'); toggleMore(false); };
+function sendResolution() {
+  const v = $('#res').value;
+  if (v === 'auto') send({t: 'quality.set', resolution: {mode: 'auto'}});
+  else { const [w, h] = v.split('x').map(Number); send({t: 'quality.set', resolution: {mode: 'preset', width: w, height: h}}); }
+}
+
+let route = '';
+async function updateInfo() {
+  if (pc && pc.connectionState === 'connected') {
+    try {
+      const stats = await pc.getStats();
+      let pair = null;
+      stats.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+      if (pair) {
+        const local = stats.get(pair.localCandidateId), remote = stats.get(pair.remoteCandidateId);
+        route = (local?.candidateType === 'relay' || remote?.candidateType === 'relay') ? 'Relayed' : 'Direct';
+      }
+    } catch {}
+  }
+  const parts = [];
+  parts.push(ended ? 'Disconnected' : pc ? `Connected${route ? ' · ' + route : ''} · encrypted` : 'Waiting for the phone');
+  if (streamSize) parts.push(`Stream ${streamSize.width} × ${streamSize.height}`);
+  if (input && input.readyState === 'open') parts.push(canControl ? 'Control on' : 'View only (accessibility off on the phone)');
+  if (input && input.readyState === 'open' && !canRotate) parts.push('Rotation: allow it on the phone');
+  $('#info').textContent = parts.join('\n');
+  $('#info').style.whiteSpace = 'pre-line';
+}
+
+// Screenshot to the PC: the current video frame → Downloads\Remote PC.
+function screenshot() {
+  const v = video;
+  if (!v.videoWidth) { toast('Nothing to capture yet.'); return; }
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  c.toBlob(blob => {
+    if (!blob) return;
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const name = `Phone screenshot ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}.png`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    $('#flash').classList.add('on');
+    setTimeout(() => $('#flash').classList.remove('on'), 60);
+    toast('Screenshot saved to Downloads\\Remote PC.');
+  }, 'image/png');
+}
+
+// ---- keyboard (typing + emulator shortcuts) --------------------------------------------------
+
+const KEYS = new Set(['Backspace', 'Delete', 'Enter', 'NumpadEnter', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
 let textBuf = '';
 function flushText() { if (textBuf) { send({t: 'text', text: textBuf}); textBuf = ''; } }
 window.addEventListener('keydown', async e => {
-  if (!canControl || e.target.tagName === 'SELECT') return;
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === 'F11') { e.preventDefault(); window.phone.window('fullscreen'); return; }
+  if (e.key === 'Escape' && zoomMode) { e.preventDefault(); setZoomMode(false); return; }
+  if (e.key === 'Escape' && !$('#more').classList.contains('hidden')) { e.preventDefault(); toggleMore(false); return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && !e.altKey) {
     const k = e.key.toLowerCase();
+    const shortcut = {
+      '=': () => scaleBy(1.1), '+': () => scaleBy(1.1), '-': () => scaleBy(1 / 1.1),
+      s: () => screenshot(),
+    }[k];
+    if (shortcut) { e.preventDefault(); shortcut(); return; }
+    if (!canControl) return;
+    const phoneShortcut = {
+      h: () => nav('home'), o: () => nav('recents'), p: () => send({t: 'power'}),
+      backspace: () => nav('back'),
+      arrowup: () => send({t: 'volume', dir: 'up'}), arrowdown: () => send({t: 'volume', dir: 'down'}),
+      arrowleft: () => rotate('left'), arrowright: () => rotate('right'),
+    }[k];
+    if (phoneShortcut) { e.preventDefault(); flushText(); phoneShortcut(); return; }
     if (k === 'v') {
       e.preventDefault();
       const text = await window.phone.readClipboard();
@@ -320,7 +683,8 @@ window.addEventListener('keydown', async e => {
     }
     return;
   }
-  if (e.key === 'Escape') { e.preventDefault(); flushText(); send({t: 'nav', action: 'back'}); return; }
+  if (!canControl) return;
+  if (e.key === 'Escape') { e.preventDefault(); flushText(); nav('back'); return; }
   if (KEYS.has(e.key)) { e.preventDefault(); flushText(); send({t: 'key', code: e.key}); return; }
   if (e.key.length === 1 && !e.altKey) {
     e.preventDefault();
@@ -329,35 +693,7 @@ window.addEventListener('keydown', async e => {
   }
 });
 
-// ---- toolbar ------------------------------------------------------------------------------
-
-for (const action of ['back', 'home', 'recents', 'notifications']) {
-  $('#' + action).onclick = () => { send({t: 'nav', action}); video.focus(); };
-}
-$('#clipTo').onclick = async () => {
-  const text = await window.phone.readClipboard();
-  send({t: 'clipboard.set', text});
-  toast(text ? 'Clipboard sent to the phone — long-press a field there and Paste.' : 'This PC’s clipboard is empty.');
-};
-$('#clipFrom').onclick = () => send({t: 'clipboard.get'});
-$('#sound').onclick = () => {
-  const on = !$('#sound').classList.contains('on');
-  if (on) ensureAudio();
-  send({t: 'audio.set', on});
-};
-$('#getFile').onclick = () => send({t: 'file.request'});
-$('#sendFile').onclick = () => $('#filePick').click();
-$('#filePick').onchange = () => { for (const f of $('#filePick').files) sendFile(f); $('#filePick').value = ''; };
-$('#res').onchange = () => { sendResolution(); video.focus(); };
-function sendResolution() {
-  const v = $('#res').value;
-  if (v === 'auto') send({t: 'quality.set', resolution: {mode: 'auto'}});
-  else { const [w, h] = v.split('x').map(Number); send({t: 'quality.set', resolution: {mode: 'preset', width: w, height: h}}); }
-}
-$('#disconnect').onclick = () => { window.phone.end('pc_closed'); finish('Disconnected', 'You ended the session.'); };
-$('#ovClose').onclick = () => window.close();
-
-// ---- phone sound (24 kHz mono PCM) -----------------------------------------------------------
+// ---- phone sound (24 kHz mono PCM) -------------------------------------------------------------
 
 let actx = null, nextAt = 0;
 function ensureAudio() { if (!actx) actx = new AudioContext({sampleRate: 24000}); if (actx.state === 'suspended') actx.resume(); }
@@ -434,9 +770,11 @@ function receiveFile(ch) {
   };
 }
 
-// ---- start ---------------------------------------------------------------------------------
+// ---- start --------------------------------------------------------------------------------------
 
-overlay(`Waiting for ${PHONE_NAME}…`, 'Tap Allow on the phone, then accept Android’s screen-sharing prompt.', {spin: true});
+layout();
+setInterval(() => { if (!$('#more').classList.contains('hidden')) updateInfo(); }, 3000);
+message(`Waiting for ${PHONE_NAME}…`, 'Tap Allow on the phone, then accept Android’s screen-sharing prompt.', true);
 window.phone.start(PHONE_ID).then(result => {
   if (!result.ok) finish('Could not connect', result.error || 'Try again.');
 });

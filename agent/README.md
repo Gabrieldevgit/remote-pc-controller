@@ -85,11 +85,17 @@ and has two parts, like Chrome Remote Desktop:
   *"Your screen is shared — Stop sharing"*. No account is needed on this PC.
 
 - **Your phones** (signed in) — Android phones of the same account that
-  turned on *Available to my PCs* in the Remote PC app. **Connect** opens a
-  viewer window (`desktop/phone-viewer.html`): click = tap, drag =
-  swipe, right-click / Esc = Back, wheel = scroll, typing goes to the focused
-  field; toolbar: Back · Home · Recents · Notifications · Sound · Clipboard ⇄
-  · Send / Get file · Resolution · Disconnect. Files from the phone are saved
+  turned on *Available to my PCs* in the Remote PC app. **Connect** opens an emulator-style window
+  (`desktop/phone-viewer.html`): a phone-shaped frameless window (drag it by
+  the bezel, resize from the corner or with Ctrl + / Ctrl −, Maximize, F11
+  fullscreen) with the emulator's toolbar — Power, Volume ±, Rotate ←/→,
+  Screenshot (saved to `Downloads\Remote PC`), Zoom, Back, Home, Overview — and
+  a ⋯ More panel (notifications, quick settings, phone sound, clipboard ⇄,
+  send / get file, resolution, always on top, disconnect). Click = tap,
+  drag = swipe, hold = long press, right-click / Esc = Back, wheel = scroll,
+  typing goes to the focused field; emulator shortcuts (Ctrl+H Home, Ctrl+O
+  Overview, Ctrl+P Power, Ctrl+↑/↓ volume, Ctrl+←/→ rotate, Ctrl+S
+  screenshot). Files from the phone are saved
   to `Downloads\Remote PC`. The phone must allow every session.
 - **Account & history** (optional) — sign in or create an account (the same
   one as the phone app). While signed in, *Set up remote access* needs no

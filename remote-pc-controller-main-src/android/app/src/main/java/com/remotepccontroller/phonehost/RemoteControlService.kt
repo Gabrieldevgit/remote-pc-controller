@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -28,7 +29,9 @@ class RemoteControlService : AccessibilityService() {
       private set
 
     private const val STROKE_MS = 16L
-    private const val HOLD_MS = 120L
+    private const val TAP_MS = 40L
+    private const val NUDGE_PX = 0.5f
+    private const val TAG = "RemotePcInput"
   }
 
   private val main = Handler(Looper.getMainLooper())
@@ -54,8 +57,8 @@ class RemoteControlService : AccessibilityService() {
   // ---- live finger --------------------------------------------------------------
   // A continued stroke can only be dispatched after the previous part has
   // completed, so moves are coalesced: we keep the latest target point and
-  // send it when the running part finishes. While the finger rests, a short
-  // "hold" part keeps it pressed (long press).
+  // send it when the running part finishes. While the finger rests nothing is
+  // sent: the continued stroke keeps it pressed (Android's long press).
 
   private var stroke: GestureDescription.StrokeDescription? = null
   private var dispatching = false
@@ -64,6 +67,8 @@ class RemoteControlService : AccessibilityService() {
   private var targetX = 0f
   private var targetY = 0f
   private var upPending = false
+  private var sentX = 0f
+  private var sentY = 0f
   private var fingerDown = false
 
   fun touch(phase: String, x: Float, y: Float) = main.post {
@@ -72,9 +77,8 @@ class RemoteControlService : AccessibilityService() {
         cancelFinger()
         fingerDown = true
         upPending = false
-        lastX = x; lastY = y; targetX = x; targetY = y
-        val path = Path().apply { moveTo(x, y) }
-        val first = GestureDescription.StrokeDescription(path, 0, STROKE_MS, continuable())
+        lastX = x; lastY = y; targetX = x; targetY = y; sentX = x; sentY = y
+        val first = GestureDescription.StrokeDescription(segment(x, y, x, y), 0, STROKE_MS, continuable())
         dispatchPart(first)
       }
       "move" -> if (fingerDown) {
@@ -91,6 +95,26 @@ class RemoteControlService : AccessibilityService() {
 
   private fun continuable() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
+  private var nudge = NUDGE_PX
+
+  /**
+   * Path for one part of the live finger, ending where the next part starts
+   * (lastX/lastY are updated to the real end). A part that does not move gets
+   * a half-pixel nudge: Android cannot take an end point from a zero-length
+   * path, so it cancelled the continuation and drags never moved. Half a
+   * pixel, alternating, is far below the touch slop: a held finger is still.
+   */
+  private fun segment(fromX: Float, fromY: Float, toX: Float, toY: Float): Path {
+    var endX = toX
+    if (toX == fromX && toY == fromY) {
+      endX = fromX + nudge
+      nudge = -nudge
+    }
+    lastX = endX
+    lastY = toY
+    return Path().apply { moveTo(fromX, fromY); lineTo(endX, toY) }
+  }
+
   private fun continueFinger() {
     val prev = stroke
     if (prev == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -102,11 +126,9 @@ class RemoteControlService : AccessibilityService() {
       }
       return
     }
-    val moving = targetX != lastX || targetY != lastY
-    val path = Path().apply { moveTo(lastX, lastY); lineTo(targetX, targetY) }
-    val duration = if (moving || upPending) STROKE_MS else HOLD_MS
-    val next = prev.continueStroke(path, 0, duration, !upPending)
-    lastX = targetX; lastY = targetY
+    val path = segment(lastX, lastY, targetX, targetY)
+    val next = prev.continueStroke(path, 0, STROKE_MS, !upPending)
+    sentX = targetX; sentY = targetY
     if (upPending) {
       fingerDown = false
       upPending = false
@@ -117,15 +139,24 @@ class RemoteControlService : AccessibilityService() {
   private fun dispatchPart(part: GestureDescription.StrokeDescription) {
     stroke = part
     dispatching = true
+    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "part to ($lastX, $lastY) dur=${part.duration} continues=${part.willContinue()}")
     val ok = dispatchGesture(
       GestureDescription.Builder().addStroke(part).build(),
       object : GestureResultCallback() {
         override fun onCompleted(gestureDescription: GestureDescription?) {
           dispatching = false
-          if (fingerDown) continueFinger() else stroke = null
+          if (!fingerDown) {
+            stroke = null
+          } else if (upPending || targetX != sentX || targetY != sentY) {
+            continueFinger()
+          }
+          // Otherwise the finger simply stays down (a continued stroke is not
+          // released until the next part) until the next move or the release;
+          // Android's own long press fires while it rests.
         }
 
         override fun onCancelled(gestureDescription: GestureDescription?) {
+          Log.w(TAG, "live finger cancelled by the system")
           dispatching = false
           stroke = null
           fingerDown = false
@@ -134,6 +165,7 @@ class RemoteControlService : AccessibilityService() {
       main,
     )
     if (!ok) {
+      Log.w(TAG, "live finger part rejected")
       dispatching = false
       stroke = null
       fingerDown = false
@@ -144,6 +176,17 @@ class RemoteControlService : AccessibilityService() {
     stroke = null
     dispatching = false
     fingerDown = false
+  }
+
+  /**
+   * A complete tap in one gesture (a mouse click on the PC). Sending a click
+   * as a live finger (down … network … up) kept the finger pressed past
+   * Android's long-press timeout, so launchers opened their long-press menu.
+   */
+  fun tap(x: Float, y: Float) = main.post {
+    if (fingerDown) cancelFinger()
+    val path = Path().apply { moveTo(x, y) }
+    dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, TAP_MS)).build(), null, null)
   }
 
   /** Swipe of (dx, dy) pixels starting at (x, y). */

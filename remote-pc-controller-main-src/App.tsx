@@ -18,6 +18,7 @@ import SupportScreen from './src/screens/SupportScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SetupScreen from './src/screens/SetupScreen';
 import PhoneHostScreen from './src/screens/PhoneHostScreen';
+import InputTestScreen from './src/screens/InputTestScreen';
 import PhoneRequestPrompt from './src/components/PhoneRequestPrompt';
 import {resumeAvailability} from './src/lib/phoneHost';
 import {useAuthStore} from './src/store/auth';
@@ -140,6 +141,7 @@ function RootNavigator() {
           />
           <Stack.Screen name="Setup" component={SetupScreen} />
           <Stack.Screen name="PhoneHost" component={PhoneHostScreen} />
+          {__DEV__ ? <Stack.Screen name="InputTest" component={InputTestScreen} /> : null}
         </Stack.Navigator>
       </NavigationContainer>
       <PhoneRequestPrompt />

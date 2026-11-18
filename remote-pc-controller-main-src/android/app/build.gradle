@@ -82,8 +82,8 @@ android {
         applicationId "com.remotepccontroller"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.2.1"
         // Skip 32-bit ABIs: emulator uses x86_64, modern phones use arm64-v8a.
         // Also avoids a flaky ninja/CMake build failure in react-native-worklets on armeabi-v7a.
         ndk {

@@ -3,6 +3,8 @@ package com.remotepccontroller.phonehost
 import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
+import android.media.AudioManager
+import android.os.PowerManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -137,6 +139,103 @@ class PhoneHostModule(private val ctx: ReactApplicationContext) : ReactContextBa
     val ex = (px + dx.coerceIn(-0.9, 0.9) * w).toFloat().coerceIn(1f, w - 1)
     val ey = (py + dy.coerceIn(-0.9, 0.9) * h).toFloat().coerceIn(1f, h - 1)
     s.scroll(px, py, ex - px, ey - py)
+  }
+
+  /** A complete tap (mouse click) at x, y (0..1). */
+  @ReactMethod
+  fun tap(x: Double, y: Double) {
+    val s = service() ?: return
+    val (w, h) = displaySize()
+    s.tap((x.coerceIn(0.0, 1.0) * (w - 1)).toFloat(), (y.coerceIn(0.0, 1.0) * (h - 1)).toFloat())
+  }
+
+  // ---- emulator-style hardware buttons ----------------------------------------------
+
+  /** Media volume up / down, showing Android's volume bar. No permission needed. */
+  @ReactMethod
+  fun volume(dir: String, promise: Promise) {
+    val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val direction = if (dir == "up") AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+      am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+    }
+    promise.resolve(true)
+  }
+
+  /**
+   * Power button: screen on → lock it (Android 9+); screen off → wake it
+   * (the lock screen stays). long = the power menu.
+   */
+  @ReactMethod
+  fun power(long: Boolean, promise: Promise) {
+    if (long) {
+      val s = service(promise) ?: return
+      promise.resolve(s.nav("power"))
+      return
+    }
+    val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+    if (pm.isInteractive) {
+      val s = service(promise) ?: return
+      promise.resolve(s.nav("lock"))
+    } else {
+      @Suppress("DEPRECATION")
+      val wl = pm.newWakeLock(
+        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+        "RemotePC:wake",
+      )
+      wl.acquire(3_000)
+      promise.resolve(true)
+    }
+  }
+
+  // Rotation needs "Modify system settings" (Settings.System.canWrite). The
+  // user's auto-rotate choice is saved before the first change and put back
+  // by restoreRotation() when the session ends.
+  private var savedAutoRotate: Int? = null
+  private var savedUserRotation: Int? = null
+
+  @ReactMethod
+  fun canRotate(promise: Promise) {
+    promise.resolve(Settings.System.canWrite(ctx))
+  }
+
+  @ReactMethod
+  fun openRotationSettings() {
+    ctx.startActivity(
+      Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
+  }
+
+  /** dir: "left" (counter-clockwise) or "right" (clockwise). */
+  @ReactMethod
+  fun rotate(dir: String, promise: Promise) {
+    if (!Settings.System.canWrite(ctx)) {
+      promise.reject("no_rotate_permission", "Allow \"Modify system settings\" for Remote PC on the phone to rotate it from the PC.")
+      return
+    }
+    val cr = ctx.contentResolver
+    if (savedAutoRotate == null) {
+      savedAutoRotate = Settings.System.getInt(cr, Settings.System.ACCELEROMETER_ROTATION, 1)
+      savedUserRotation = Settings.System.getInt(cr, Settings.System.USER_ROTATION, 0)
+    }
+    val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    @Suppress("DEPRECATION") val current = wm.defaultDisplay.rotation
+    val next = if (dir == "left") (current + 1) % 4 else (current + 3) % 4
+    Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, 0)
+    Settings.System.putInt(cr, Settings.System.USER_ROTATION, next)
+    promise.resolve(next * 90)
+  }
+
+  @ReactMethod
+  fun restoreRotation() {
+    val auto = savedAutoRotate ?: return
+    if (!Settings.System.canWrite(ctx)) return
+    val cr = ctx.contentResolver
+    Settings.System.putInt(cr, Settings.System.USER_ROTATION, savedUserRotation ?: 0)
+    Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, auto)
+    savedAutoRotate = null
+    savedUserRotation = null
   }
 
   @ReactMethod
@@ -276,6 +375,7 @@ class PhoneHostModule(private val ctx: ReactApplicationContext) : ReactContextBa
 
   override fun invalidate() {
     stopAudio()
+    restoreRotation()
     displayListener?.let { (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it) }
     displayListener = null
     super.invalidate()

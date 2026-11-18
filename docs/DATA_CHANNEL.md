@@ -235,7 +235,11 @@ PC → phone (`input`):
 
 | Message | Fields | Effect |
 |---|---|---|
-| `touch` | `phase`: `down`\|`move`\|`up`, `x`, `y` (0..1 of the phone screen) | One live finger (accessibility gestures): click = tap, drag = swipe/drag, hold = long press |
+| `tap` | `x`, `y` (0..1 of the phone screen) | One complete tap (a mouse click). Clicks must not use `touch`: a live finger stays pressed while the `up` travels over the network, which Android reads as a long press |
+| `touch` | `phase`: `down`\|`move`\|`up`, `x`, `y` | One live finger, only for drags (moved ≥ 6 px) and deliberate long presses (held ≥ 300 ms). The finger rests between parts without sending anything |
+| `volume` | `dir`: `up`\|`down` | Media volume, with Android's volume bar |
+| `power` | optional `long`: boolean | Screen on → lock (Android 9+); screen off → wake (the lock screen stays); `long` → power menu |
+| `rotate` | `dir`: `left`\|`right` | Rotate 90°; needs "Modify system settings" on the phone. The phone's own auto-rotate setting is restored when the session ends |
 | `scroll` | `x`, `y`, `dx`, `dy` (fractions of the screen, ±0.9) | Short swipe (mouse wheel) |
 | `nav` | `action`: `back`\|`home`\|`recents`\|`notifications`\|`quick_settings`\|`power`\|`lock`\|`screenshot` | Android global action |
 | `text` | `text` | Insert at the cursor of the focused field |
@@ -246,7 +250,7 @@ PC → phone (`input`):
 | `quality.set` | `resolution` (as section 7, landscape-first box) | Live capture size, keeping the phone's shape |
 
 Phone → PC: `screen {width, height, rotation}` (on connect and on
-rotation), `access {input}` (accessibility service on/off — off = view
-only), `audio.state {available, on, sampleRate?, error?}`,
+rotation), `access {input, rotate}` (accessibility service on/off — off = view
+only; rotation permission granted), `audio.state {available, on, sampleRate?, error?}`,
 `quality.ack {size, screen}`, `clipboard.set`, `file.picking`, `file.none`,
 `error`.

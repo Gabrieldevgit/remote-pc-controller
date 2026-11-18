@@ -417,14 +417,24 @@ function openPhoneViewer(phone) {
       return;
     }
   }
+  // Emulator-style: a frameless, transparent window that the page draws as
+  // a phone with a toolbar beside it. The page asks for its exact size
+  // (phone:fit) and drives minimize / maximize / fullscreen (phone:window).
   const work = screen.getPrimaryDisplay().workArea;
-  const height = Math.min(900, Math.round(work.height * 0.9));
+  const height = Math.min(880, Math.round(work.height * 0.86));
+  const width = Math.round(height * 0.52) + 76;
   const win = new BrowserWindow({
-    width: Math.round(height * 0.5),
+    width,
     height,
-    minWidth: 320,
-    minHeight: 360,
-    backgroundColor: '#000000',
+    x: Math.round(work.x + (work.width - width) / 2),
+    y: Math.round(work.y + (work.height - height) / 2),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: true,
     title: `${phone.name} — Remote PC`,
     icon: APP_ICON,
     autoHideMenuBar: true,
@@ -433,10 +443,26 @@ function openPhoneViewer(phone) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A live remote view: input timing, sound and layout must not be
+      // throttled when the window is behind others.
+      backgroundThrottling: false,
     },
   });
   const id = win.webContents.id;
-  phoneViewers.set(id, {win, phoneId: phone.id, session: null});
+  phoneViewers.set(id, {win, phoneId: phone.id, session: null, mode: 'normal', restore: null});
+  const sendState = () => {
+    const v = phoneViewers.get(id);
+    if (v && !win.isDestroyed()) win.webContents.send('phone:window-state', {mode: v.mode, top: win.isAlwaysOnTop()});
+  };
+  win.on('enter-full-screen', () => { const v = phoneViewers.get(id); if (v) v.mode = 'full'; sendState(); });
+  win.on('leave-full-screen', () => {
+    const v = phoneViewers.get(id);
+    if (!v || v.mode !== 'full') return;
+    v.mode = 'normal';
+    if (v.restore) win.setBounds(v.restore);
+    v.restore = null;
+    sendState();
+  });
   win.loadFile(path.join(__dirname, 'phone-viewer.html'), {
     search: new URLSearchParams({id: phone.id, name: String(phone.name || 'Phone')}).toString(),
   });
@@ -481,19 +507,68 @@ ipcMain.handle('phone:end', async (event, reason) => {
   await viewer?.session?.end(typeof reason === 'string' ? reason : 'pc_closed');
   return {ok: true};
 });
-/** Resize the viewer to the phone's shape (toolbar 52 px on top). */
+/** The page asks for an exact window size (phone + toolbar) in normal mode. */
 ipcMain.handle('phone:fit', (event, size) => {
   const viewer = phoneViewers.get(event.sender.id);
-  const w = Number(size?.width), h = Number(size?.height);
-  if (!viewer || viewer.win.isDestroyed() || !(w > 0 && h > 0)) return;
-  if (viewer.win.isMaximized() || viewer.win.isFullScreen()) return;
-  const work = screen.getDisplayMatching(viewer.win.getBounds()).workArea;
-  const maxH = Math.round(work.height * 0.92) - 52;
-  const maxW = Math.round(work.width * 0.92);
-  const scale = Math.min(maxH / h, maxW / w, 1);
-  const cw = Math.max(320, Math.round(w * scale));
-  const ch = Math.round(h * scale) + 52;
-  viewer.win.setContentSize(cw, ch);
+  const w = Math.round(Number(size?.width)), h = Math.round(Number(size?.height));
+  if (!viewer || viewer.win.isDestroyed() || !(w > 100 && h > 100)) return null;
+  if (viewer.mode !== 'normal') return null;
+  const b = viewer.win.getBounds();
+  const work = screen.getDisplayMatching(b).workArea;
+  const width = Math.min(w, work.width), height = Math.min(h, work.height);
+  // Keep the window on screen; grow from the top-left corner.
+  const x = Math.min(Math.max(b.x, work.x), work.x + work.width - width);
+  const y = Math.min(Math.max(b.y, work.y), work.y + work.height - height);
+  viewer.win.setBounds({x, y, width, height});
+  return {width, height, maxWidth: work.width, maxHeight: work.height};
+});
+
+function exitFullscreen(viewer) {
+  const bounds = viewer.restore;
+  viewer.mode = 'normal';
+  viewer.restore = null;
+  viewer.win.setFullScreen(false);
+  if (!bounds) return;
+  // Windows finishes leaving fullscreen asynchronously and may apply its own
+  // size afterwards; set ours again once it has settled.
+  viewer.win.setBounds(bounds);
+  setTimeout(() => { if (!viewer.win.isDestroyed() && viewer.mode === 'normal') viewer.win.setBounds(bounds); }, 250);
+}
+
+/** Window controls drawn by the page (the window has no frame). */
+ipcMain.handle('phone:window', (event, msg) => {
+  const viewer = phoneViewers.get(event.sender.id);
+  if (!viewer || viewer.win.isDestroyed()) return null;
+  const win = viewer.win;
+  switch (msg?.action) {
+    case 'minimize': win.minimize(); break;
+    case 'close': win.close(); return null;
+    case 'maximize':
+      if (viewer.mode === 'full') { exitFullscreen(viewer); break; }
+      if (viewer.mode === 'max') {
+        viewer.mode = 'normal';
+        if (viewer.restore) win.setBounds(viewer.restore);
+        viewer.restore = null;
+      } else {
+        viewer.restore = win.getBounds();
+        viewer.mode = 'max';
+        win.setBounds(screen.getDisplayMatching(win.getBounds()).workArea);
+      }
+      break;
+    case 'fullscreen':
+      // Track the mode ourselves: a transparent frameless window does not
+      // report fullscreen reliably on Windows.
+      if (viewer.mode === 'full') { exitFullscreen(viewer); break; }
+      if (viewer.mode === 'normal') viewer.restore = win.getBounds();
+      viewer.mode = 'full';
+      win.setFullScreen(true);
+      break;
+    case 'top': win.setAlwaysOnTop(Boolean(msg.value), 'floating'); break;
+    default: break;
+  }
+  const state = {mode: viewer.mode, top: win.isAlwaysOnTop()};
+  win.webContents.send('phone:window-state', state);
+  return state;
 });
 ipcMain.handle('clipboard:read', () => clipboard.readText().slice(0, 100000));
 ipcMain.handle('clipboard:write', (_event, text) => {

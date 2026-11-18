@@ -24,4 +24,6 @@ export type RootStackParamList = {
   Setup: undefined;
   /** "Control this phone from your PC" (src/lib/phoneHost.ts). */
   PhoneHost: undefined;
+  /** Debug builds only: checks the phone-host gestures on this device. */
+  InputTest: undefined;
 };

@@ -34,6 +34,13 @@ interface PhoneHostNative {
   openAppDetails(): void;
   getDisplayInfo(): Promise<DisplayInfo>;
   touch(phase: 'down' | 'move' | 'up', x: number, y: number): void;
+  tap(x: number, y: number): void;
+  volume(dir: 'up' | 'down'): Promise<boolean>;
+  power(long: boolean): Promise<boolean>;
+  canRotate(): Promise<boolean>;
+  openRotationSettings(): void;
+  rotate(dir: 'left' | 'right'): Promise<number>;
+  restoreRotation(): void;
   scroll(x: number, y: number, dx: number, dy: number): void;
   nav(action: string): Promise<boolean>;
   typeText(text: string): Promise<boolean>;
@@ -77,6 +84,8 @@ interface PhoneHostState {
   busy: boolean;
   phoneId: string | null;
   accessibility: boolean;
+  /** "Modify system settings" granted (Rotate from the PC). */
+  rotate: boolean;
   request: PhoneRequest | null;
   phase: HostPhase;
   pcName: string | null;
@@ -90,6 +99,7 @@ export const usePhoneHostStore = create<PhoneHostState>(() => ({
   busy: false,
   phoneId: null,
   accessibility: false,
+  rotate: false,
   request: null,
   phase: 'idle',
   pcName: null,
@@ -115,10 +125,26 @@ export async function refreshAccessibility(): Promise<boolean> {
 
 export const openAccessibilitySettings = () => Native?.openAccessibilitySettings();
 export const openAppDetails = () => Native?.openAppDetails();
+export const openRotationSettings = () => Native?.openRotationSettings();
+
+/** "Modify system settings" granted → the PC's Rotate buttons work. */
+export async function refreshRotation(): Promise<boolean> {
+  const on = phoneHostSupported ? await Native!.canRotate().catch(() => false) : false;
+  set({rotate: on});
+  return on;
+}
+
+/** Debug input test screen (src/screens/InputTestScreen.tsx). */
+export const debugInput = {
+  tap: (x: number, y: number) => Native?.tap(x, y),
+  touch: (phase: 'down' | 'move' | 'up', x: number, y: number) => Native?.touch(phase, x, y),
+  scroll: (x: number, y: number, dx: number, dy: number) => Native?.scroll(x, y, dx, dy),
+};
 
 AppState.addEventListener('change', state => {
   if (state === 'active') {
     void refreshAccessibility();
+    void refreshRotation();
   }
 });
 
@@ -463,7 +489,9 @@ class HostSession {
       this.input = channel;
       const ready = () => {
         this.sendScreen();
-        void refreshAccessibility().then(on => this.sendJson({t: 'access', input: on}));
+        void Promise.all([refreshAccessibility(), refreshRotation()]).then(([input, rotate]) =>
+          this.sendJson({t: 'access', input, rotate}),
+        );
         this.sendJson({t: 'audio.state', available: Number(Platform.Version) >= 29, on: false});
         void this.applyCaptureSize();
       };
@@ -530,6 +558,27 @@ class HostSession {
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
     try {
       switch (msg.t) {
+        case 'tap': {
+          const x = num(msg.x);
+          const y = num(msg.y);
+          if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+            Native!.tap(x, y);
+          }
+          return;
+        }
+        case 'volume':
+          if (msg.dir === 'up' || msg.dir === 'down') {
+            await Native!.volume(msg.dir);
+          }
+          return;
+        case 'power':
+          await Native!.power(msg.long === true);
+          return;
+        case 'rotate':
+          if (msg.dir === 'left' || msg.dir === 'right') {
+            await Native!.rotate(msg.dir);
+          }
+          return;
         case 'touch': {
           const phase = msg.phase;
           const x = num(msg.x);
@@ -598,7 +647,9 @@ class HostSession {
     } catch (err) {
       const code = (err as {code?: string})?.code;
       if (code === 'no_accessibility') {
-        this.sendJson({t: 'access', input: false});
+        this.sendJson({t: 'access', input: false, rotate: usePhoneHostStore.getState().rotate});
+      } else if (code === 'no_rotate_permission') {
+        this.sendJson({t: 'access', input: usePhoneHostStore.getState().accessibility, rotate: false});
       }
       this.sendJson({t: 'error', request: String(msg.t), message: (err instanceof Error ? err.message : String(err)).slice(0, 300)});
     }
@@ -631,6 +682,8 @@ class HostSession {
     }
     this.closed = true;
     Native?.stopAudio();
+    // Put the phone's own rotation setting back.
+    Native?.restoreRotation();
     this.subs.forEach(s => s.remove());
     this.transfers.closeAll();
     this.stream?.getTracks().forEach(t => t.stop());
