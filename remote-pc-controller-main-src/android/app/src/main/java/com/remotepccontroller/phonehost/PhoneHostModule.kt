@@ -6,6 +6,7 @@ import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.os.PowerManager
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import android.util.DisplayMetrics
@@ -333,6 +334,43 @@ class PhoneHostModule(private val ctx: ReactApplicationContext) : ReactContextBa
     audio = null
   }
 
+  // ---- keep the network awake during a session -------------------------------------------
+  // Without these, Android's Wi-Fi power saving / Doze can pause the phone's
+  // network while it is being controlled: the PC's picture freezes and the
+  // link drops.
+
+  private var wifiLock: WifiManager.WifiLock? = null
+  private var cpuLock: PowerManager.WakeLock? = null
+
+  @ReactMethod
+  fun keepConnection(on: Boolean) {
+    try {
+      if (on) {
+        if (wifiLock == null) {
+          val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+          @Suppress("DEPRECATION")
+          val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+          wifiLock = wifi.createWifiLock(mode, "RemotePC:session").apply { setReferenceCounted(false); acquire() }
+        }
+        if (cpuLock == null) {
+          val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+          // Safety cap; the JS side re-arms it while the session lasts.
+          cpuLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RemotePC:session").apply {
+            setReferenceCounted(false)
+            acquire(4 * 60 * 60 * 1000L)
+          }
+        }
+      } else {
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
+        cpuLock?.let { if (it.isHeld) it.release() }
+        cpuLock = null
+      }
+    } catch (_: Exception) {
+      // Best effort: the session still works without the locks.
+    }
+  }
+
   // ---- availability + notifications -----------------------------------------------------
 
   @ReactMethod
@@ -374,6 +412,7 @@ class PhoneHostModule(private val ctx: ReactApplicationContext) : ReactContextBa
   }
 
   override fun invalidate() {
+    keepConnection(false)
     stopAudio()
     restoreRotation()
     displayListener?.let { (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it) }

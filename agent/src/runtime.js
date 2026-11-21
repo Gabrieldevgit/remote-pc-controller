@@ -119,6 +119,10 @@ export async function startAgent({
       heartbeatIntervalMs: heartbeatIntervalMs ?? 20_000,
     });
 
+  // TURN (Cloudflare, via the turn-credentials function) lets sessions connect
+  // across different networks; null keeps the built-in STUN servers.
+  if (typeof client.iceServers === 'function') sessions.getIceServers = () => client.iceServers();
+
   client.on('log', (level, ...args) => {
     const line = args.join(' ');
     log(`[${config.backend === 'relay' ? 'relay' : 'supabase'}] ${line}`);

@@ -70,6 +70,25 @@ export class SupabaseAgentClient extends EventEmitter {
   log(...args) { this.emit('log', 'info', ...args); }
   warn(...args) { this.emit('log', 'warn', ...args); }
 
+  /** STUN + short-lived TURN servers (turn-credentials Edge Function), cached for half their TTL. */
+  async iceServers() {
+    if (this.iceCache && this.iceCache.until > Date.now()) return this.iceCache.servers;
+    try {
+      const { data, error } = await this.supabase.functions.invoke('turn-credentials', { body: {} });
+      if (error || !Array.isArray(data?.iceServers)) throw new Error(error?.message ?? 'bad reply');
+      const ttl = Number(data.ttl) > 0 ? Number(data.ttl) : 3600;
+      this.iceCache = { servers: data.iceServers, until: Date.now() + (ttl * 1000) / 2 };
+      if (!this.iceWarned) {
+        this.iceWarned = true;
+        this.log(data.turn ? 'TURN relay available (connections work across networks)' : 'no TURN relay configured: only same-network / open-NAT connections will work');
+      }
+      return data.iceServers;
+    } catch (err) {
+      this.warn(`turn-credentials failed: ${err?.message ?? err}`);
+      return null;
+    }
+  }
+
   get connected() { return this.authed; }
 
   // ---- lifecycle -------------------------------------------------------------

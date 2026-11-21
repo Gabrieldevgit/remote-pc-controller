@@ -210,7 +210,10 @@ export class SessionManager {
     security = null,
     authorize = null,
     onSessionEvent = null,
+    getIceServers = null,
   }) {
+    // async () => RTCIceServer[] | null — STUN + TURN for this session (turn-credentials).
+    this.getIceServers = getIceServers;
     this.security = security;
     this.authorize = authorize;
     this.onSessionEvent = onSessionEvent;
@@ -328,9 +331,17 @@ export class SessionManager {
       return;
     }
     if (session.peer) {
-      this.logWarn(`duplicate offer for session ${sessionId}; ignoring`);
+      // Same session, new offer: the viewer restarts ICE after a network drop.
+      try {
+        await session.peer.renegotiate?.(sdp);
+        this.log(`session ${sessionId}: reconnecting (ICE restart)`);
+      } catch (err) {
+        this.logWarn(`ICE restart failed for ${sessionId}: ${err?.message ?? err}`);
+      }
       return;
     }
+    if (session.answering) return;
+    session.answering = true;
     if (!this.backend || this.backend.mode === 'none') {
       // No WebRTC capability at all: reject the session with a clear reason.
       this.logWarn(`feature unavailable: WebRTC backend (${this.backend?.reason ?? 'none'}) — rejecting session`);
@@ -339,8 +350,10 @@ export class SessionManager {
       return;
     }
     try {
+      const iceServers = this.getIceServers ? await this.getIceServers().catch(() => null) : null;
       session.peer = await this.backend.createPeer({
         offerSdp: sdp,
+        iceServers: iceServers ?? undefined,
         sendSignal: (type, fields) => this.sendSignal(type, { sessionId, ...fields }),
         onDataChannel: (channel) => this.routeChannel(session, channel),
         session,

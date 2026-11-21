@@ -498,6 +498,14 @@ ipcMain.handle('phone:start', async (event, phoneId) => {
     return {ok: false, error: err?.message ?? 'Could not reach the phone.'};
   }
 });
+ipcMain.handle('phone:ice', async event => {
+  if (!phoneViewers.get(event.sender.id)) return null;
+  try {
+    return await (await account()).iceServers();
+  } catch {
+    return null;
+  }
+});
 ipcMain.on('phone:signal', (event, msg) => {
   const viewer = phoneViewers.get(event.sender.id);
   if (viewer?.session && msg && typeof msg.event === 'string') viewer.session.signal(msg.event, msg.payload ?? {});

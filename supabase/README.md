@@ -45,6 +45,29 @@ PC and is never stored here.
 - **Removing a PC** — deleting the `devices` row also deletes its device
   login (trigger), so the agent is locked out immediately.
 
+## Connecting across networks (TURN)
+
+Peers first try a direct path (STUN). On different networks — mobile data,
+CGNAT, strict routers — that often fails, so every client (phone app,
+Remote PC Host, phone viewer) asks the **`turn-credentials`** Edge Function
+for short-lived **Cloudflare TURN** credentials (12 h) before connecting;
+TURN then relays the encrypted stream (DTLS-SRTP end to end, Cloudflare
+cannot read it). Only signed-in users get credentials.
+
+Setup (once):
+
+1. Cloudflare dashboard → **Realtime → TURN Server → Create** → copy the
+   **Turn Token ID** and **API Token**.
+2. Supabase dashboard → **Edge Functions → Secrets** → add
+   `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN`.
+
+Without the secrets the function answers with STUN only (same-network use
+keeps working). Free tier: 1 000 GB / month of relayed traffic.
+
+When the network drops mid-session (Wi-Fi ↔ mobile data, a short outage),
+the offering side restarts ICE on the same connection instead of hanging up
+(gives up after 45 s); the phone holds a Wi-Fi / CPU lock while controlled.
+
 ## Security model
 
 - Clients only ever hold the **publishable** key. No `service_role` key is in
@@ -77,6 +100,7 @@ npx supabase link --project-ref hmhjlpxzuoyvxzqyfkqc
 npx supabase db push
 npx supabase functions deploy pair-device --no-verify-jwt
 npx supabase functions deploy support-host --no-verify-jwt
+npx supabase functions deploy turn-credentials
 ```
 
 `migrations/20261114235000_remote_pc_backend.sql`,

@@ -105,8 +105,8 @@ function bgraToRgba(bgra, pixelCount) {
 function createWrtcBackend(info, iceServers, log) {
   const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream, nonstandard } = info.wrtc;
 
-  async function createPeer({ offerSdp, sendSignal, onDataChannel }) {
-    const pc = new RTCPeerConnection({ iceServers });
+  async function createPeer({ offerSdp, sendSignal, onDataChannel, iceServers: sessionIce }) {
+    const pc = new RTCPeerConnection({ iceServers: sessionIce ?? iceServers });
 
     pc.addEventListener('icecandidate', (event) => {
       if (event.candidate) sendSignal('signal.ice', candidateFields(event.candidate));
@@ -166,6 +166,14 @@ function createWrtcBackend(info, iceServers, log) {
           pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
         }
       },
+      /** A new offer on the same connection (ICE restart after a network drop). */
+      async renegotiate(sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
+        const again = await pc.createAnswer();
+        await pc.setLocalDescription(again);
+        sendSignal('signal.answer', { sdp: pc.localDescription.sdp });
+      },
+      get connectionState() { return pc.connectionState; },
       close() {
         try { track.stop(); } catch { /* already stopped */ }
         try { audioTrack.stop(); } catch { /* already stopped */ }
@@ -182,8 +190,8 @@ function createWrtcBackend(info, iceServers, log) {
 function createWeriftBackend(info, iceServers, log) {
   const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } = info.werift;
 
-  async function createPeer({ offerSdp, sendSignal, onDataChannel }) {
-    const pc = new RTCPeerConnection({ iceServers });
+  async function createPeer({ offerSdp, sendSignal, onDataChannel, iceServers: sessionIce }) {
+    const pc = new RTCPeerConnection({ iceServers: sessionIce ?? iceServers });
 
     pc.onIceCandidate?.subscribe?.((candidate) => {
       if (candidate) sendSignal('signal.ice', candidateFields(candidate));
@@ -212,6 +220,12 @@ function createWeriftBackend(info, iceServers, log) {
         if (candidate?.candidate) {
           pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
         }
+      },
+      async renegotiate(sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
+        const again = await pc.createAnswer();
+        await pc.setLocalDescription(again);
+        sendSignal('signal.answer', { sdp: pc.localDescription?.sdp ?? again.sdp });
       },
       close() {
         try { pc.close(); } catch { /* already closed */ }

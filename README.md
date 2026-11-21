@@ -163,14 +163,13 @@ commands): [`docs/E2E_CHECKLIST.md`](docs/E2E_CHECKLIST.md).
   unattended access and policies (clipboard / files / curtain on or off).
 - Curtain mode that also blocks local input (needs an elevated service).
 - Multi-display selection and per-display capture.
-- TURN credentials from an Edge Function for strict NAT networks.
 - iOS build and TestFlight (requires macOS / Xcode).
 - Packaging the agent as a signed single-file executable.
 
 ## Layout
 
 ```
-supabase/      migrations, pair-device + support-host Edge Functions, README
+supabase/      migrations, pair-device + support-host + turn-credentials Edge Functions, README
 relay/         legacy self-hosted relay (src/, test/, PROTOCOL.md)
 agent/         Windows agent (src/, test/, README.md)
 docs/          DATA_CHANNEL.md, E2E_CHECKLIST.md

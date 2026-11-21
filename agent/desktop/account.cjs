@@ -64,6 +64,7 @@ function friendlyAuthError(error) {
 }
 
 function createAccount({file, url, key, safeStorage}) {
+  let iceCache = null;
   const storage = new SecureFileStorage(file, safeStorage);
   const supabase = createClient(url, key, {
     auth: {storage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false},
@@ -196,6 +197,21 @@ function createAccount({file, url, key, safeStorage}) {
           row.unsubscribe();
         },
       };
+    },
+
+    /** STUN + short-lived TURN servers (turn-credentials Edge Function); null on failure. */
+    async iceServers() {
+      if (iceCache && iceCache.until > Date.now()) return iceCache.servers;
+      if (!(await currentUser())) return null;
+      try {
+        const {data, error} = await supabase.functions.invoke('turn-credentials', {body: {}});
+        if (error || !Array.isArray(data?.iceServers)) return null;
+        const ttl = Number(data.ttl) > 0 ? Number(data.ttl) : 3600;
+        iceCache = {servers: data.iceServers, until: Date.now() + (ttl * 1000) / 2};
+        return data.iceServers;
+      } catch {
+        return null;
+      }
     },
 
     /**

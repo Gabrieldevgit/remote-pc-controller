@@ -4,6 +4,7 @@ const {contextBridge, ipcRenderer} = require('electron');
 
 contextBridge.exposeInMainWorld('phone', {
   start: phoneId => ipcRenderer.invoke('phone:start', phoneId),
+  iceServers: () => ipcRenderer.invoke('phone:ice'),
   signal: (event, payload) => ipcRenderer.send('phone:signal', {event, payload}),
   end: reason => ipcRenderer.invoke('phone:end', reason),
   fit: size => ipcRenderer.invoke('phone:fit', size),

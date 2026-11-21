@@ -24,7 +24,7 @@ import {create} from 'zustand';
 
 import {supabase} from './supabase';
 import {clientName} from './clientName';
-import {ICE_SERVERS} from './sessionClient';
+import {getIceServers} from './iceServers';
 import {TransferManager, type Transfer} from './fileTransfer';
 import {base64ToBytes} from './base64';
 
@@ -52,6 +52,7 @@ interface PhoneHostNative {
   stopAvailability(): void;
   showRequest(sessionId: string, pcName: string): void;
   clearRequest(): void;
+  keepConnection(on: boolean): void;
 }
 
 export interface DisplayInfo {
@@ -359,6 +360,8 @@ class HostSession {
   private audio: Channel | null = null;
   private pendingIce: RTCIceCandidate[] = [];
   private closed = false;
+  private answering = false;
+  private lostTimer: ReturnType<typeof setTimeout> | null = null;
   private display: DisplayInfo | null = null;
   private box: {width: number; height: number} | null = null; // requested stream size
   private subs: {remove: () => void}[] = [];
@@ -384,6 +387,8 @@ class HostSession {
       throw new Error(error.message);
     }
     set({phase: 'connecting'});
+    // Keep Wi-Fi / CPU awake while the PC controls the phone (no freezes from power saving).
+    Native?.keepConnection(true);
     const emitter = new NativeEventEmitter(NativeModules.PhoneHost);
     this.subs.push(
       emitter.addListener('PhoneHostDisplay', (info: DisplayInfo) => {
@@ -448,10 +453,32 @@ class HostSession {
   }
 
   private async answer(sdp: string) {
-    if (this.pc || this.closed || !this.stream) {
+    if (this.closed || !this.stream) {
       return;
     }
-    const pc = new RTCPeerConnection({iceServers: ICE_SERVERS as never[]});
+    if (this.pc) {
+      // A new offer on the same session: the PC restarts ICE after a network drop.
+      const live = this.pc;
+      try {
+        await live.setRemoteDescription(new RTCSessionDescription({type: 'offer', sdp}));
+        const again = await live.createAnswer();
+        await live.setLocalDescription(again);
+        this.send('answer', {sdp: again.sdp});
+      } catch {
+        // The next attempt from the PC will try again.
+      }
+      return;
+    }
+    if (this.answering) {
+      return;
+    }
+    this.answering = true;
+    // STUN + TURN: TURN relays the stream when the PC is on another network.
+    const iceServers = await getIceServers();
+    if (this.closed || this.pc) {
+      return;
+    }
+    const pc = new RTCPeerConnection({iceServers: iceServers as never[]});
     this.pc = pc;
     for (const track of this.stream.getTracks()) {
       pc.addTrack(track, this.stream);
@@ -468,11 +495,22 @@ class HostSession {
     };
     anyPc.ondatachannel = ({channel}) => this.onChannel(channel);
     anyPc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') {
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        if (this.lostTimer) {
+          clearTimeout(this.lostTimer);
+          this.lostTimer = null;
+        }
         set({phase: 'connected'});
-      } else if (pc.connectionState === 'failed') {
-        set({error: 'The connection to the PC was lost.'});
-        void this.close(true, 'connection_failed');
+      } else if ((state === 'disconnected' || state === 'failed') && !this.lostTimer) {
+        // The PC restarts ICE to recover; only hang up if that never works.
+        this.lostTimer = setTimeout(() => {
+          this.lostTimer = null;
+          if (!this.closed && pc.connectionState !== 'connected') {
+            set({error: 'The connection to the PC was lost.'});
+            void this.close(true, 'connection_failed');
+          }
+        }, 55_000);
       }
     };
     await pc.setRemoteDescription(new RTCSessionDescription({type: 'offer', sdp}));
@@ -681,6 +719,11 @@ class HostSession {
       return;
     }
     this.closed = true;
+    if (this.lostTimer) {
+      clearTimeout(this.lostTimer);
+      this.lostTimer = null;
+    }
+    Native?.keepConnection(false);
     Native?.stopAudio();
     // Put the phone's own rotation setting back.
     Native?.restoreRotation();

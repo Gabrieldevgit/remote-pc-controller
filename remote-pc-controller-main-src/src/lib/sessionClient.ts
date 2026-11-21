@@ -27,6 +27,7 @@ import {
 import type {RealtimeChannel} from '@supabase/supabase-js';
 
 import {supabase} from './supabase';
+import {getIceServers, IceRecovery} from './iceServers';
 import {clientName} from './clientName';
 import {AUTO_RESOLUTION, resolutionPayload, type StreamResolution} from './resolution';
 import {BackendError, toBackendError} from './backend';
@@ -57,9 +58,8 @@ export interface SessionStatsSnapshot {
   packetsLost: number | null;
 }
 
-export const ICE_SERVERS = [
-  {urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']},
-];
+// STUN + TURN (turn-credentials Edge Function) — see iceServers.ts.
+export {STUN_SERVERS as ICE_SERVERS} from './iceServers';
 
 const STATS_INTERVAL_MS = 2000;
 const ACCEPT_TIMEOUT_MS = 30000;
@@ -118,6 +118,7 @@ function jpegSize(bytes: Uint8Array): {width: number; height: number} | null {
 export class SessionClient {
   private sessionId: string | null = null;
   private pc: RTCPeerConnection | null = null;
+  private recovery: IceRecovery | null = null;
   private kind: SessionKind = 'access';
   /** Realtime: row updates for this session + the signaling channel. */
   private rowChannel: RealtimeChannel | null = null;
@@ -322,13 +323,24 @@ export class SessionClient {
     this.emitPhase('signaling');
     try {
       await this.joinSignaling(this.sessionId!);
-      if (this.ended) {
+      // TURN lets the link form across different networks (not just the same Wi-Fi).
+      const iceServers = await getIceServers();
+      if (this.ended || this.pc) {
         return;
       }
       const pc = new RTCPeerConnection({
-        iceServers: ICE_SERVERS as never[],
+        iceServers: iceServers as never[],
       });
       this.pc = pc;
+      // Network drop (Wi-Fi ↔ mobile data, an outage): restart ICE instead of hanging up.
+      this.recovery = new IceRecovery(pc as never, {
+        sendOffer: sdp => this.sendSignal('offer', {sdp}),
+        onLost: () => {
+          if (!this.ended && this.pc === pc) {
+            this.emitPhase('failed', 'The connection to the computer was lost.');
+          }
+        },
+      });
 
       // CRITICAL: the offer must contain a video m-section, otherwise the
       // device (which answers with its capture track attached) cannot include
@@ -389,9 +401,7 @@ export class SessionClient {
         if (this.ended || this.pc !== pc) {
           return;
         }
-        if (pc.connectionState === 'failed') {
-          this.emitPhase('failed', 'The connection to the computer was lost.');
-        }
+        this.recovery?.update();
       };
 
       const offer = await pc.createOffer();
@@ -419,6 +429,10 @@ export class SessionClient {
       );
       this.flushPendingIce();
     } catch {
+      // A late answer to an older reconnect attempt: harmless, the next one wins.
+      if (pc.remoteDescription) {
+        return;
+      }
       this.emitPhase('failed', 'Could not apply the computer’s answer');
     }
   }
@@ -745,6 +759,8 @@ export class SessionClient {
     }
     const pc = this.pc;
     this.pc = null;
+    this.recovery?.stop();
+    this.recovery = null;
     if (pc) {
       try {
         pc.close();

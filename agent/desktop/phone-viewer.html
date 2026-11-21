@@ -157,7 +157,9 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const PHONE_ID = params.get('id');
 const PHONE_NAME = params.get('name') || 'your phone';
-const ICE = [{urls: 'stun:stun.l.google.com:19302'}, {urls: 'stun:stun1.l.google.com:19302'}];
+// STUN only as a fallback; TURN (turn-credentials) is fetched per session so
+// the phone can be reached from another network (mobile data, CGNAT…).
+const STUN = [{urls: 'stun:stun.l.google.com:19302'}, {urls: 'stun:stun1.l.google.com:19302'}];
 const CHUNK = 48 * 1024;
 const MAX_FILE = 1024 * 1024 * 1024;
 document.title = `${PHONE_NAME} — Remote PC`;
@@ -315,9 +317,10 @@ window.phone.onEvent(ev => {
     else if (ev.state === 'ended') finish('Disconnected', ev.endReason === 'timeout' ? 'Nobody answered on the phone.' : ev.endReason === 'capture_denied' ? 'Screen sharing was not allowed on the phone.' : 'The session has ended.');
   } else if (ev.type === 'signal') {
     if (ev.event === 'answer' && pc && ev.payload && typeof ev.payload.sdp === 'string') {
+      // (A late answer to an older reconnect attempt fails harmlessly.)
       pc.setRemoteDescription({type: 'answer', sdp: ev.payload.sdp}).then(() => {
         for (const c of pendingIce.splice(0)) pc.addIceCandidate(c).catch(() => {});
-      });
+      }, () => {});
     } else if (ev.event === 'ice' && ev.payload && typeof ev.payload.candidate === 'string') {
       const c = {candidate: ev.payload.candidate, sdpMid: ev.payload.sdpMid ?? null, sdpMLineIndex: ev.payload.sdpMLineIndex ?? null};
       if (pc && pc.remoteDescription) pc.addIceCandidate(c).catch(() => {});
@@ -332,7 +335,9 @@ async function negotiate() {
   if (started || ended) return;
   started = true;
   message('Connecting…', 'The phone allowed the connection.', true);
-  pc = new RTCPeerConnection({iceServers: ICE});
+  const ice = await window.phone.iceServers().catch(() => null);
+  if (ended) return;
+  pc = new RTCPeerConnection({iceServers: Array.isArray(ice) && ice.length ? ice : STUN});
   pc.addTransceiver('video', {direction: 'recvonly'});
   input = pc.createDataChannel('input', {ordered: true});
   audioCh = pc.createDataChannel('audio', {ordered: false, maxRetransmits: 0});
@@ -354,12 +359,54 @@ async function negotiate() {
   pc.onicecandidate = e => {
     if (e.candidate) window.phone.signal('ice', {candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex});
   };
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed') finish('Connection lost', 'Check that both devices are online, then connect again.');
-  };
+  pc.onconnectionstatechange = () => recover();
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   window.phone.signal('offer', {sdp: offer.sdp});
+}
+
+// ---- reconnect: restart ICE when the network drops ---------------------------------------
+// Wi-Fi ↔ mobile data, a short outage or the phone's power saving pauses the
+// link (the picture freezes). Instead of giving up, send a fresh offer with
+// iceRestart until a new path is found; give up after RECOVER_GIVE_UP_MS.
+const RECOVER_GIVE_UP_MS = 45000;
+let recoverTimer = null, giveUpTimer = null, recoverAttempts = 0, lastRestart = 0, reconnecting = false;
+function recover() {
+  if (!pc || ended) return;
+  const state = pc.connectionState;
+  if (state === 'connected') {
+    clearTimeout(recoverTimer); recoverTimer = null;
+    clearTimeout(giveUpTimer); giveUpTimer = null;
+    if (reconnecting) { message(null); toast('Reconnected.'); }
+    reconnecting = false;
+    recoverAttempts = 0;
+    return;
+  }
+  if (state !== 'disconnected' && state !== 'failed') return;
+  if (!reconnecting) {
+    reconnecting = true;
+    message('Reconnecting…', 'The network connection to the phone dropped. Trying to restore it.', true);
+  }
+  if (!giveUpTimer) {
+    giveUpTimer = setTimeout(() => {
+      if (pc && pc.connectionState !== 'connected') finish('Connection lost', 'Check that both devices are online, then connect again.');
+    }, RECOVER_GIVE_UP_MS);
+  }
+  if (!recoverTimer) recoverTimer = setTimeout(restartIce, state === 'failed' ? 0 : 2500);
+}
+async function restartIce() {
+  recoverTimer = null;
+  if (!pc || ended || pc.connectionState === 'connected' || pc.connectionState === 'closed') return;
+  recoverAttempts++;
+  if (!(pc.signalingState === 'have-local-offer' && Date.now() - lastRestart < 5000)) {
+    try {
+      lastRestart = Date.now();
+      const offer = await pc.createOffer({iceRestart: true});
+      await pc.setLocalDescription(offer);
+      window.phone.signal('offer', {sdp: pc.localDescription.sdp});
+    } catch {}
+  }
+  recoverTimer = setTimeout(restartIce, Math.min(10000, 1000 * 2 ** recoverAttempts));
 }
 
 function onMessage(msg) {
